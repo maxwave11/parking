@@ -1,0 +1,1840 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Интерактивная 3D-модель шкафа для паркинга: стеллаж, стол, верстак, велосипед, шины и автобокс.">
+<title>Шкаф в паркинг</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: 3D-вьюер слева на всю высоту, справа узкая панель параметров; на телефоне панель уходит под вьюер */
+  :root {
+    --bg: #eceff1;
+    --panel: #f8f9fa;
+    --fg: #1b2229;
+    --muted: #5d6873;
+    --line: #cfd5da;
+    --accent: #c06c14;
+    --accent-soft: rgba(192, 108, 20, 0.12);
+    --scene: #e2e6e9;
+    --edge: #3a4550;
+    --ok: #1d7f46;
+    --warn: #b7791f;
+    --bad: #c42b2b;
+    --label-bg: rgba(255, 255, 255, 0.88);
+    --font-body: "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14181c; --panel: #1b2026; --fg: #e4e8ec; --muted: #93a0ac; --line: #2c343c;
+      --accent: #e89a45; --accent-soft: rgba(232, 154, 69, 0.16); --scene: #1d242b; --edge: #a9b8c6; --ok: #4cc27e; --warn: #e3b341; --bad: #ff6b6b;
+      --label-bg: rgba(20, 24, 28, 0.88); color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14181c; --panel: #1b2026; --fg: #e4e8ec; --muted: #93a0ac; --line: #2c343c;
+    --accent: #e89a45; --accent-soft: rgba(232, 154, 69, 0.16); --scene: #1d242b; --edge: #a9b8c6; --ok: #4cc27e; --warn: #e3b341; --bad: #ff6b6b;
+    --label-bg: rgba(20, 24, 28, 0.88); color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; }
+  * { box-sizing: border-box; }
+
+  .app {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 330px;
+    grid-template-rows: auto 1fr;
+    gap: 14px 16px;
+    min-height: 100%;
+    padding-block: 16px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  header { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+  h1 { margin: 0; font-size: 20px; font-weight: 600; text-wrap: balance; }
+  header p { margin: 0; color: var(--muted); font-family: var(--font-mono); font-size: 12.5px; }
+
+  .viewer {
+    position: relative; min-width: 0; height: calc(100vh - 96px); min-height: 440px;
+    background: var(--scene); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  }
+  .viewer canvas { display: block; touch-action: none; }
+  .labels { position: absolute; inset: 0; pointer-events: none; }
+  .viewbar { position: absolute; top: 10px; left: 10px; right: 160px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; pointer-events: none; }
+  .views { display: flex; flex-wrap: wrap; gap: 6px; pointer-events: auto; }
+  .views button {
+    font: 500 12.5px var(--font-body); color: var(--fg); background: var(--label-bg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer;
+  }
+  .views button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .views button:focus-visible, .panel input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .viewer-msg { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: min(420px, 85%);
+    background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; font-size: 13px; line-height: 1.45; }
+  .hint { position: absolute; right: 10px; bottom: 10px; font-size: 11.5px; color: var(--muted);
+    background: var(--label-bg); padding: 4px 8px; border-radius: 6px; }
+  @media (max-width: 600px) { .hint { display: none; } .viewbar { right: 56px; } .fs-btn span { display: none; } }
+
+  /* полноэкранный режим: настоящий fullscreen, а где он недоступен (iPhone, встроенные окна) — на всё окно */
+  .fs-btn {
+    position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; gap: 6px;
+    font: 500 12.5px var(--font-body); color: var(--fg); background: var(--label-bg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer;
+  }
+  .fs-btn svg { width: 15px; height: 15px; flex: none; }
+  .fs-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .fs-btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .fs-only { display: none !important; }
+  .viewer.is-fs .fs-only { display: flex !important; }
+  .viewer.fs { position: fixed; inset: 0; z-index: 100; }
+  .viewer.fs, .viewer:fullscreen { width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; }
+  .viewer:-webkit-full-screen { width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; }
+  .viewer.is-fs .viewbar { top: max(10px, env(safe-area-inset-top, 0px)); left: max(10px, env(safe-area-inset-left, 0px)); }
+  .viewer.is-fs .fs-btn { top: max(10px, env(safe-area-inset-top, 0px)); right: max(10px, env(safe-area-inset-right, 0px)); }
+  .viewer.is-fs .hint { bottom: max(10px, env(safe-area-inset-bottom, 0px)); right: max(10px, env(safe-area-inset-right, 0px)); }
+  html.fs-lock, html.fs-lock body { overflow: hidden; }
+
+  .dim { font: 500 11.5px var(--font-mono); color: var(--fg); white-space: nowrap; }
+  .dim span { display: inline-block; background: var(--label-bg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 2px 6px; }
+  .dim.r span { transform: translateX(52%); }
+  .dim.l span { transform: translateX(-52%); }
+  .dim.main span { border-color: var(--accent); color: var(--accent); }
+
+  /* панель: главное — список объектов и их размеры; всё плотное, строки ~28px */
+  .panel { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .card > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px; }
+  .card > summary::-webkit-details-marker { display: none; }
+  .card > summary::after { content: ""; flex: none; width: 6px; height: 6px; margin-top: -3px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); transition: transform 0.2s; }
+  .card[open] > summary::after { transform: rotate(-135deg); margin-top: 3px; }
+  .card > summary:hover h2 { color: var(--fg); }
+  .card > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .card h2 { flex: 1; margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .sum-note { font-size: 11.5px; color: var(--muted); }
+  .card-body { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 12px; }
+  @media (prefers-reduced-motion: reduce) { .card > summary::after { transition: none; } }
+
+  /* сводка проверки: всегда на виду над панелью */
+  .checkbar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; width: 100%;
+    padding: 7px 12px; font: 500 12px var(--font-body); color: var(--fg); text-align: left; cursor: pointer;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .checkbar:hover { border-color: var(--muted); }
+  .checkbar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cb { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .cb i, .chip i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .cb.warn i, .chip.warn i { background: var(--warn); }
+  .cb.bad i, .chip.bad i { background: var(--bad); }
+  .cb.bad, .chip.bad b { color: var(--bad); }
+
+  .btn { font: 500 12.5px var(--font-body); color: var(--fg); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 9px; cursor: pointer; text-align: center; }
+  .btn:hover { border-color: var(--muted); }
+  .btn.danger { color: var(--bad); }
+  .link { font: 600 11.5px var(--font-body); color: var(--accent); background: none; border: 0; padding: 2px 4px; border-radius: 4px; cursor: pointer; }
+  .link.danger { color: var(--bad); }
+  .link:hover { text-decoration: underline; }
+  .btn:focus-visible, .link:focus-visible, .obj-row:focus-visible, .obj-form input:focus-visible, .io textarea:focus-visible, .io summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* список объектов: строки без рамок в общем контейнере, группы «Мебель» и «Полки» */
+  .obj-list { max-height: 280px; overflow-y: auto; overscroll-behavior: contain; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+  .obj-group { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    height: 24px; padding: 0 6px 0 10px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--line); }
+  .obj-group .link { letter-spacing: 0; text-transform: none; }
+  .obj-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; height: 28px; padding: 0 10px;
+    font: 13px var(--font-body); color: var(--fg); text-align: left; cursor: pointer; background: transparent;
+    border: 0; border-bottom: 1px solid var(--line); box-shadow: inset 3px 0 0 transparent; }
+  .obj-row:last-child { border-bottom: 0; }
+  .obj-row:hover { background: var(--panel); }
+  .obj-row[aria-pressed="true"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+  .obj-row[aria-pressed="true"] b { color: var(--accent); }
+  .obj-row b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  .obj-row span { flex: none; font: 11.5px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* форма выбранного объекта: каждое поле в одну строку «подпись | ползунок | число» */
+  .obj-form { display: flex; flex-direction: column; gap: 2px; }
+  .obj-form:empty { display: none; }
+  .of-head { display: flex; align-items: center; gap: 8px; min-height: 28px; margin-bottom: 2px; }
+  .of-kind { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+  .of-grow { flex: 1; }
+  .of-unit { margin-left: auto; font: 11px var(--font-mono); color: var(--muted); }
+  .obj-form input[type="text"] { flex: 1; min-width: 0; height: 26px; font: 13px var(--font-body); color: var(--fg); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 5px; padding: 0 7px; }
+  .field { display: grid; grid-template-columns: 92px minmax(0, 1fr) 64px; align-items: center; gap: 8px; min-height: 28px; }
+  .field label { font-size: 12.5px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .field input[type="range"] { width: 100%; min-width: 0; margin: 0; accent-color: var(--accent); }
+  .obj-form input[type="number"] { width: 64px; height: 24px; font: 500 12px var(--font-mono); color: var(--accent); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 5px; padding: 0 4px 0 6px; text-align: right; font-variant-numeric: tabular-nums; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .field .seg { grid-column: 2 / -1; }
+  .seg button { height: 24px; font: 500 12.5px var(--font-body); color: var(--fg); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 5px; padding: 0 8px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .obj-warn { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; font-size: 12px; line-height: 1.35; color: var(--warn); }
+  .obj-warn:empty { display: none; }
+  .obj-warn div { padding-left: 12px; text-indent: -12px; }
+  .obj-warn div::before { content: "!"; display: inline-block; width: 12px; text-indent: 0; font-weight: 700; }
+
+  /* показать: чипы-переключатели по ширине текста; включённый — акцентный, выключенный — приглушённый */
+  .checks { display: flex; flex-wrap: wrap; gap: 4px; }
+  .checks label { position: relative; display: inline-flex; align-items: center; height: 24px; padding: 0 9px; font-size: 12px;
+    color: var(--muted); border: 1px solid var(--line); border-radius: 12px; background: var(--bg); cursor: pointer; white-space: nowrap; user-select: none; }
+  .checks label:has(input:checked) { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .checks label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .checks input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+
+  /* проверка (подробно) и размеры */
+  .status { display: flex; flex-direction: column; gap: 6px; }
+  .chip { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.4; }
+  .chip i { margin-top: 5px; }
+  .chip b { font-weight: 600; }
+  dl.sizes { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; font-size: 12px; }
+  dl.sizes dt { color: var(--muted); }
+  dl.sizes dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+  .note { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--muted); max-width: 65ch; }
+
+  /* файл: тонкая строка в конце панели */
+  .io { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .io > summary { cursor: pointer; padding: 8px 12px; font-size: 12px; color: var(--muted); border-radius: 10px; }
+  .io-body { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 12px; }
+  .io textarea { width: 100%; font: 11px/1.4 var(--font-mono); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px; resize: vertical; }
+  .io-row { display: flex; flex-wrap: wrap; gap: 4px; }
+  .btn.file { position: relative; overflow: hidden; }
+  .btn.file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .btn.file:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .io-msg { margin: 0; font-size: 12px; color: var(--muted); }
+  .io-msg:empty { display: none; }
+
+  @media (max-width: 860px) {
+    .app { grid-template-columns: minmax(0, 1fr); }
+    .viewer { height: 64vh; min-height: 360px; }
+  }
+  /* на широком экране страница не скроллится: сцена стоит на месте, прокручивается только панель */
+  @media (min-width: 861px) {
+    html, body { overflow: hidden; }
+    .app { height: 100%; min-height: 0; }
+    .viewer { height: auto; min-height: 0; }
+    .panel { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; scrollbar-gutter: stable; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <h1>Шкаф в паркинг</h1>
+    <p id="dims-line">2500 × 1000 × 2700 мм · подъёмный стол + верстак, велосипед 29″, колёса 235/60 R18</p>
+  </header>
+
+  <div class="viewer" id="viewer">
+    <div class="labels" id="labels"></div>
+    <div class="viewbar">
+    <div class="views" role="group" aria-label="Вид">
+      <button type="button" id="v-iso" data-view="iso" aria-pressed="true">3/4</button>
+      <button type="button" id="v-isometric" data-view="isometric" aria-pressed="false">Изометрия</button>
+      <button type="button" id="v-front" data-view="front" aria-pressed="false">Спереди</button>
+      <button type="button" id="v-side" data-view="side" aria-pressed="false">Сбоку</button>
+      <button type="button" id="v-top" data-view="top" aria-pressed="false">Сверху</button>
+    </div>
+    <div class="views" role="group" aria-label="Проекция">
+      <button type="button" id="pr-persp" data-proj="persp" aria-pressed="true">Перспектива</button>
+      <button type="button" id="pr-ortho" data-proj="ortho" aria-pressed="false">Ортографическая</button>
+    </div>
+    <div class="views" role="group" aria-label="Свет">
+      <button type="button" id="ov-shadow" aria-pressed="true">Тени</button>
+      <button type="button" id="ov-led" aria-pressed="true">Подсветка</button>
+    </div>
+    <div class="views fs-only" role="group" aria-label="Левый стол">
+      <button type="button" data-desk="sit" aria-pressed="true">Стол: сидя</button>
+      <button type="button" data-desk="stand" aria-pressed="false">Стол: стоя</button>
+    </div>
+    </div>
+    <button type="button" class="fs-btn" id="fs-btn" aria-pressed="false" aria-label="Во весь экран">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path id="fs-icon" d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg>
+      <span>Во весь экран</span>
+    </button>
+    <div class="hint">Вращать: перетащить · Масштаб: колесо / щипок</div>
+    <div class="viewer-msg" id="viewer-msg" role="alert" hidden></div>
+  </div>
+
+  <aside class="panel">
+    <button type="button" class="checkbar" id="checkbar" aria-controls="card-check" title="Открыть подробности проверки">
+      <span class="cb" id="cb-st-bike"><i></i><span></span></span>
+      <span class="cb" id="cb-st-legs"><i></i><span></span></span>
+      <span class="cb" id="cb-st-pedals"><i></i><span></span></span>
+      <span class="cb" id="cb-st-box"><i></i><span></span></span>
+      <span class="cb" id="cb-st-fit"><i></i><span></span></span>
+    </button>
+
+    <details class="card" id="card-objects" open>
+      <summary><h2>Объекты</h2><span class="sum-note">или кликни по модели</span></summary>
+      <div class="card-body">
+        <div class="obj-list" id="obj-list" role="group" aria-label="Объекты"></div>
+        <div class="obj-form" id="obj-form"></div>
+      </div>
+    </details>
+
+    <details class="card" id="card-show" open>
+      <summary><h2>Показать</h2></summary>
+      <div class="card-body">
+        <div class="checks">
+          <label><input type="checkbox" id="c-bike" checked> Велосипед</label>
+          <label><input type="checkbox" id="c-wheels" checked> Колёса</label>
+          <label><input type="checkbox" id="c-walls" checked> Стенки</label>
+          <label><input type="checkbox" id="c-dims" checked> Размеры</label>
+          <label><input type="checkbox" id="c-led" checked> Подсветка</label>
+          <label><input type="checkbox" id="c-shadow" checked> Тени</label>
+          <label><input type="checkbox" id="c-man" checked> Человек у верстака</label>
+          <label><input type="checkbox" id="c-sitman" checked> Человек за столом</label>
+          <label><input type="checkbox" id="c-roofbox" checked> Автобокс</label>
+        </div>
+      </div>
+    </details>
+
+    <details class="card" id="card-sizes">
+      <summary><h2>Размеры, мм</h2></summary>
+      <div class="card-body">
+        <dl class="sizes" id="sizes"></dl>
+        <p class="note">Внутри короба стоит отдельный металлический стеллаж: три пары перфорированных стоек (у левой стенки, между зонами, у правой стенки), передние у роллеты, задние анкерами к бетонной стене. Все полки — стальные лотки на всю глубину стеллажа, глубина задаётся у объекта «Стеллаж». Левый стол ездит по четырём стойкам, ножек на полу нет. Передний конец велосипеда заезжает под левый стол. Велосипед упрощённый, размеры оценочные.</p>
+      </div>
+    </details>
+
+    <details class="card" id="card-check">
+      <summary><h2>Проверка</h2></summary>
+      <div class="card-body">
+        <div class="status">
+          <div class="chip" id="st-bike"><i></i><span></span></div>
+          <div class="chip" id="st-legs"><i></i><span></span></div>
+          <div class="chip" id="st-pedals"><i></i><span></span></div>
+          <div class="chip" id="st-box"><i></i><span></span></div>
+          <div class="chip" id="st-fit"><i></i><span></span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="io" id="io">
+      <summary>Файл: сохранить или загрузить</summary>
+      <div class="io-body">
+        <p class="note">«Скачать файл» сохраняет shkaf.json в загрузки. Загрузить обратно: «Открыть файл» или вставь текст в поле. Изменения и так запоминаются в этом браузере.</p>
+        <textarea id="io-text" rows="5" spellcheck="false" aria-label="Данные модели в формате JSON"></textarea>
+        <div class="io-row">
+          <button type="button" class="btn" id="io-save">Скачать файл</button>
+          <button type="button" class="btn" id="io-copy">Скопировать</button>
+          <button type="button" class="btn" id="io-apply">Применить текст</button>
+          <label class="btn file">Открыть файл<input type="file" id="io-file" accept=".json,application/json,text/plain"></label>
+          <button type="button" class="btn danger" id="io-reset">Сбросить всё</button>
+        </div>
+        <p class="io-msg" id="io-msg" role="status"></p>
+      </div>
+    </details>
+  </aside>
+</div>
+
+<script>
+  // если модель не загрузилась, причина видна прямо в окне сцены, а не только в консоли
+  window.addEventListener('error', e => {
+    const box = document.getElementById('viewer-msg');
+    const isScript = e.target && e.target.tagName === 'SCRIPT';
+    if (!box || !(isScript || e.message)) return;
+    box.hidden = false;
+    box.textContent = (isScript ? 'Не загрузилась библиотека 3D: ' + e.target.src.split('/').pop() : 'Модель не построилась: ' + e.message) +
+      '. Обнови страницу. Если не поможет — пришли мне этот текст.';
+  }, true);
+</script>
+<script src="vendor/three/three.min.js"></script>
+<script src="vendor/three/OrbitControls.js"></script>
+<script src="vendor/three/CSS2DRenderer.js"></script>
+<script src="vendor/three/RoomEnvironment.js"></script>
+<script>
+(function () {
+  // ---------- Постоянные размеры (метры) ----------
+  // габариты шкафа задаются у объекта «Шкаф»; шкаф и стеллаж стоят по центральной оси парковочного места
+  let W = 2.5, H = 2.7, D = 1.0;
+  const T = 0.018;
+  const ROLLER_BOX_H = 0.2, ROLLER_BOX_D = 0.25, GUIDE_W = 0.05, GUIDE_D = 0.08, FRONT_GAP = 0.1;
+  const CAR_D = 0.74, CAR_W = 0.235, RIM_D = 18 * 0.0254;
+  // Aspect AIR ELITE 29, рама L: покрышка 29×2.25 — внешний диаметр 622 + 2×57 = 736 мм
+  const BIKE_WHEEL_D = 0.736;
+  const SIT_LOW = 0.81, POST = 0.04, RAIL_Z0 = 0.76, RAIL_Z1 = 1.55;
+  const XI0 = T;
+  let XI1 = W - T, YB = D;   // задней стенки нет: сзади бетонная стена паркинга
+  const mm = v => Math.round(v * 1000);
+
+  // Координаты как на чертеже: x — ширина, y — глубина (0 = фасад), z — высота
+  const V = (x, y, z) => new THREE.Vector3(x - W / 2, z, D / 2 - y);
+
+  // ---------- Сцена ----------
+  const viewer = document.getElementById('viewer');
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  viewer.prepend(renderer.domElement);
+  renderer.domElement.addEventListener('webglcontextlost', e => {
+    e.preventDefault();
+    const box = document.getElementById('viewer-msg');
+    box.hidden = false;
+    box.textContent = 'Видеокарта сбросила 3D-сцену (так бывает, когда открыто много вкладок с 3D). Обнови страницу.';
+  });
+  const labelRenderer = new THREE.CSS2DRenderer();
+  labelRenderer.domElement.style.position = 'absolute';
+  labelRenderer.domElement.style.inset = '0';
+  document.getElementById('labels').appendChild(labelRenderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 100);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---------- Свет и рендер ----------
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.9;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // мягкое окружение — даёт отражения на металле и дисках
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+
+  // паркинг: рассеянный свет + потолочный светильник перед шкафом, он даёт тени
+  scene.add(new THREE.HemisphereLight(0xf2f4f7, 0x55585c, 0.12));
+  const lamp = new THREE.SpotLight(0xfff4e6, 2.2, 0, 0.95, 0.6, 1);
+  lamp.position.set(0.3, 3.1, D / 2 + 1.6);
+  lamp.target.position.set(0, 0.9, -0.1);
+  lamp.castShadow = true;
+  lamp.shadow.mapSize.set(2048, 2048);
+  lamp.shadow.camera.near = 0.5;
+  lamp.shadow.camera.far = 10;
+  lamp.shadow.bias = -0.0004;
+  lamp.shadow.normalBias = 0.02;
+  scene.add(lamp, lamp.target);
+  const fixture = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.05, 0.12), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  fixture.position.set(0.3, 3.15, D / 2 + 1.6);
+  scene.add(fixture);
+  // LED-ленты под узкими полками
+  const ledL = new THREE.PointLight(0xffe4bf, 0.8, 2.2, 2), ledR = ledL.clone();
+  scene.add(ledL, ledR);
+
+  // ---------- Процедурные текстуры ----------
+  function canvasTex(w, h, draw, rx = 1, ry = 1, isColor = true) {
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    draw(c.getContext('2d'), w, h);
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(rx, ry);
+    t.encoding = isColor ? THREE.sRGBEncoding : THREE.LinearEncoding;
+    t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    return t;
+  }
+  const concreteDraw = (g, w, h) => {
+    g.fillStyle = '#a3a39f';
+    g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 7000; i++) {
+      const v = 115 + Math.random() * 80 | 0;
+      g.fillStyle = `rgba(${v},${v},${v - 4},0.35)`;
+      g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 2, 1 + Math.random() * 2);
+    }
+    for (let i = 0; i < 10; i++) {
+      const x = 40 + Math.random() * (w - 80), y = 40 + Math.random() * (h - 80), r = 15 + Math.random() * 25;
+      const gr = g.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, 'rgba(50,50,50,0.10)');
+      gr.addColorStop(1, 'rgba(50,50,50,0)');
+      g.fillStyle = gr;
+      g.fillRect(x - r, y - r, 2 * r, 2 * r);
+    }
+  };
+  // пол паркинга: шлифованный бетон с топпингом, заполнитель, следы затирки, пятна масла и швы нарезки
+  const STAINS = Array.from({ length: 7 }, () => ({ x: 0.1 + Math.random() * 0.8, y: 0.1 + Math.random() * 0.8, r: 0.02 + Math.random() * 0.05 }));
+  const floorTex = canvasTex(1024, 1024, (g, w, h) => {
+    g.fillStyle = '#a4a29d';
+    g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 70000; i++) {
+      const v = 110 + Math.random() * 90 | 0;
+      g.fillStyle = `rgba(${v},${v - 1},${v - 5},0.28)`;
+      g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 2.5, 1 + Math.random() * 2.5);
+    }
+    g.lineWidth = 18;
+    for (let i = 0; i < 40; i++) {      // дуги от затирочной машины
+      g.strokeStyle = `rgba(${Math.random() < 0.5 ? '255,255,250' : '60,60,58'},0.035)`;
+      g.beginPath();
+      g.arc(Math.random() * w, Math.random() * h, 60 + Math.random() * 160, Math.random() * 6, Math.random() * 6 + 1.5);
+      g.stroke();
+    }
+    for (const st of STAINS) {          // масляные пятна
+      for (let k = 0; k < 6; k++) {
+        const x = (st.x + (Math.random() - 0.5) * st.r) * w, y = (st.y + (Math.random() - 0.5) * st.r) * h, rr = st.r * w * (0.4 + Math.random() * 0.6);
+        const gr = g.createRadialGradient(x, y, 0, x, y, rr);
+        gr.addColorStop(0, 'rgba(45,38,30,0.16)');
+        gr.addColorStop(1, 'rgba(45,38,30,0)');
+        g.fillStyle = gr;
+        g.fillRect(x - rr, y - rr, 2 * rr, 2 * rr);
+      }
+    }
+    g.fillStyle = 'rgba(35,35,35,0.6)';  // швы нарезки по краю плиты
+    g.fillRect(0, 0, w, 3);
+    g.fillRect(0, 0, 3, h);
+  }, 2.6, 2.2);
+  // карта шероховатости: пятна и затирка глаже, швы грубее — блики ложатся неравномерно, как на настоящем полу
+  const floorRough = canvasTex(512, 512, (g, w, h) => {
+    g.fillStyle = '#bdbdbd';
+    g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 9000; i++) {
+      const v = 160 + Math.random() * 80 | 0;
+      g.fillStyle = `rgba(${v},${v},${v},0.4)`;
+      g.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+    }
+    for (const st of STAINS) {
+      const x = st.x * w, y = st.y * h, rr = st.r * w * 1.1;
+      const gr = g.createRadialGradient(x, y, 0, x, y, rr);
+      gr.addColorStop(0, 'rgba(70,70,70,0.9)');
+      gr.addColorStop(1, 'rgba(70,70,70,0)');
+      g.fillStyle = gr;
+      g.fillRect(x - rr, y - rr, 2 * rr, 2 * rr);
+    }
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, w, 2);
+    g.fillRect(0, 0, 2, h);
+  }, 2.6, 2.2, false);
+  // рельеф металла: рёбра жёсткости на листах корпуса и ламели роллеты
+  const ribTex = canvasTex(64, 8, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, w, 0);
+    gr.addColorStop(0, '#808080'); gr.addColorStop(0.44, '#808080'); gr.addColorStop(0.5, '#e0e0e0');
+    gr.addColorStop(0.56, '#808080'); gr.addColorStop(1, '#808080');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, w, h);
+  }, 9, 1, false);
+  const slatTex = canvasTex(8, 64, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, 0, h);
+    gr.addColorStop(0, '#303030'); gr.addColorStop(0.12, '#c8c8c8'); gr.addColorStop(0.5, '#e8e8e8');
+    gr.addColorStop(0.88, '#c8c8c8'); gr.addColorStop(1, '#303030');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, w, h);
+  }, 1, 4, false);
+  const wallTex = canvasTex(256, 256, concreteDraw, 6, 3);
+  const plyTex = canvasTex(512, 256, (g, w, h) => {
+    g.fillStyle = '#d6ad78';
+    g.fillRect(0, 0, w, h);
+    for (let y = 0; y < h; y += 2) {
+      const k = Math.sin(y * 0.09) * 0.5 + Math.sin(y * 0.023 + 1.3) * 0.5;
+      g.fillStyle = `rgba(125,82,40,${0.05 + 0.05 * k})`;
+      g.fillRect(0, y, w, 1);
+    }
+    g.strokeStyle = 'rgba(110,70,35,0.13)';
+    for (let i = 0; i < 36; i++) {
+      const y0 = Math.random() * h;
+      g.beginPath();
+      g.moveTo(0, y0);
+      for (let x = 0; x <= w; x += 32) g.lineTo(x, y0 + Math.sin(x * 0.02 + i) * 5);
+      g.stroke();
+    }
+  });
+  // перфорированная стойка стеллажа: оцинковка с продолговатыми отверстиями шагом 50 мм
+  const slotTex = canvasTex(32, 64, (g, w, h) => {
+    g.fillStyle = '#c3c7cc';
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = '#2b2e33';
+    g.beginPath();
+    g.moveTo(12, 14); g.lineTo(20, 14); g.arc(20, 22, 8, -Math.PI / 2, Math.PI / 2); g.lineTo(12, 30);
+    g.arc(12, 22, 8, Math.PI / 2, Math.PI * 1.5);
+    g.fill();
+    g.fillRect(14, 42, 4, 12);
+  });
+  const pegTex = canvasTex(32, 32, (g, w, h) => {
+    g.fillStyle = '#6d727a';
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = '#26292d';
+    g.beginPath();
+    g.arc(w / 2, h / 2, 5, 0, Math.PI * 2);
+    g.fill();
+  });
+
+  const root = new THREE.Group();
+  scene.add(root);
+  let labels = [];
+
+  const std = (color, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color, roughness: 0.7, metalness: 0 }, o));
+  const MAT = {
+    // корпус — листовая сталь с порошковой покраской: металлический блеск, рёбра жёсткости
+    carcass: std(0xd7dadd, { metalness: 0.6, roughness: 0.32, bumpMap: ribTex, bumpScale: 0.004 }),
+    wood: std(0xffffff, { map: plyTex, roughness: 0.75 }),
+    steel: std(0x6f767e, { metalness: 0.7, roughness: 0.35 }),
+    peg: std(0xffffff, { map: pegTex, roughness: 0.55, metalness: 0.2 }),
+    roller: std(0xc3c7cb, { metalness: 0.8, roughness: 0.28, bumpMap: slatTex, bumpScale: 0.006 }),
+    floor: new THREE.MeshPhysicalMaterial({ color: 0xffffff, map: floorTex, roughnessMap: floorRough, roughness: 1, metalness: 0, clearcoat: 0.3, clearcoatRoughness: 0.5 }),
+    tire: std(0x161616, { roughness: 0.9 }),
+    rim: std(0xc9ccd1, { metalness: 0.9, roughness: 0.25 }),
+    frame: std(0x2c63c9, { metalness: 0.3, roughness: 0.4 }),
+    // встроенный стеллаж: оцинкованные стойки и балки
+    upright: std(0xffffff, { map: slotTex, metalness: 0.65, roughness: 0.35 }),
+    rack: std(0xb9bec4, { metalness: 0.7, roughness: 0.33 }),
+    // полки — оцинкованные стальные лотки с отгибами
+    shelf: std(0xc9cdd2, { metalness: 0.6, roughness: 0.36 }),
+    shelfSel: std(0xc9cdd2, { metalness: 0.6, roughness: 0.36, emissive: 0xc06c14, emissiveIntensity: 0.45 }),
+    // в виде сверху полки, стол и верстак полупрозрачные, чтобы был виден план под ними
+    shelfGhost: std(0xc9cdd2, { metalness: 0.3, roughness: 0.5, transparent: true, opacity: 0.18, depthWrite: false }),
+    concrete: std(0x72716e, { map: wallTex, roughness: 0.95 }),   // стена паркинга вдвое темнее прежнего
+    paint: std(0xf1f1ec, { roughness: 0.8 }),
+    stop: std(0xb8932a, { roughness: 0.7 }),
+    saddle: std(0x222222),
+    chain: std(0x2b2d31, { metalness: 0.6, roughness: 0.4 }),
+    crank: std(0x1d1e21, { metalness: 0.55, roughness: 0.32 }),
+    pedal: std(0x2a2c30, { roughness: 0.6 }),
+    roofbox: std(0x1b1c1f, { metalness: 0.2, roughness: 0.3 }),
+    roofboxSel: std(0x1b1c1f, { metalness: 0.2, roughness: 0.3, emissive: 0xc06c14, emissiveIntensity: 0.5 }),
+    man: std(0xaebdcd, { roughness: 0.55 }),
+    chair: std(0x2c2f34, { roughness: 0.5 }),
+    woodSel: std(0xffffff, { map: plyTex, roughness: 0.75, emissive: 0xc06c14, emissiveIntensity: 0.45 }),
+    frameSel: std(0x2c63c9, { metalness: 0.3, roughness: 0.4, emissive: 0xc06c14, emissiveIntensity: 0.5 }),
+    ledOn: new THREE.MeshBasicMaterial({ color: 0xfff3dc }),
+    ledOff: std(0x9a9a9a),
+  };
+  // цвета заданы в sRGB, рендер идёт в линейном пространстве
+  const linearize = obj => obj.traverse(o => {
+    for (const m of o.material ? [].concat(o.material) : []) {
+      if (m.color && !m.userData.lin) { m.color.convertSRGBToLinear(); m.userData.lin = true; }
+      if (m.isMeshStandardMaterial) m.envMapIntensity = m.metalness > 0.3 ? 0.7 : 0.25;
+    }
+  });
+  Object.values(MAT).forEach(m => {
+    m.color.convertSRGBToLinear();
+    m.userData.lin = true;
+    if (m.isMeshStandardMaterial) m.envMapIntensity = m.metalness > 0.3 ? 0.7 : 0.25;
+  });
+  const edgeMat = new THREE.LineBasicMaterial({ color: 0x3a4550, transparent: true, opacity: 0.3 });
+  const dimMat = new THREE.LineBasicMaterial({ color: 0xc06c14 });
+
+  function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+  // ---------- Примитивы ----------
+  function box(x0, x1, y0, y1, z0, z1, mat, edges = true) {
+    const g = new THREE.BoxGeometry(x1 - x0, z1 - z0, y1 - y0);
+    const m = new THREE.Mesh(g, mat);
+    m.position.copy(V((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2));
+    if (edges) m.add(new THREE.LineSegments(new THREE.EdgesGeometry(g), edgeMat));
+    root.add(m);
+    return m;
+  }
+  // ---------- Колесо авто 235/60 R18: шина из профиля вращения + литой диск 5×2 спицы ----------
+  // локальная ось колеса — Y, лицевая сторона диска смотрит в +Y
+  // автобокс: внешние размеры 1850 × 840 × 420 мм. Обтекаемый корпус — профиль сбоку, выдавленный по ширине
+  // со скруглёнными кромками; после построения геометрия точно подгоняется под габарит
+  const ROOFBOX = { L: 1.85, W: 0.84, H: 0.42 };
+  const ROOFBOX_GEO = (function () {
+    const sh = new THREE.Shape();
+    sh.moveTo(0.04, 0);
+    sh.lineTo(0.97, 0);
+    sh.quadraticCurveTo(1.0, 0, 1.0, 0.06);                  // корма
+    sh.lineTo(0.995, 0.15);
+    sh.bezierCurveTo(0.97, 0.235, 0.55, 0.25, 0.25, 0.2);    // крыша: самая высокая точка ближе к корме
+    sh.quadraticCurveTo(0.03, 0.15, 0.0, 0.06);              // нос
+    sh.quadraticCurveTo(0.0, 0.0, 0.04, 0);
+    const g = new THREE.ExtrudeGeometry(sh, { depth: 1, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.012, bevelSegments: 6, curveSegments: 24 });
+    g.computeBoundingBox();
+    const b = g.boundingBox, size = new THREE.Vector3();
+    b.getSize(size);
+    g.translate(-b.min.x, -b.min.y, -b.min.z);
+    g.scale(ROOFBOX.L / size.x, ROOFBOX.H / size.y, ROOFBOX.W / size.z);   // ровно 1850 × 420 × 840
+    g.computeVertexNormals();
+    g.userData.shared = true;
+    return g;
+  })();
+  const SPHERE = new THREE.SphereGeometry(1, 20, 14);
+  SPHERE.userData.shared = true;
+  const markShared = g => { g.traverse(o => { if (o.geometry) o.geometry.userData.shared = true; }); return g; };
+  const CAR_WHEEL = (function () {
+    const g = new THREE.Group();
+    const rubber = new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.92, side: THREE.DoubleSide });
+    const alloy = new THREE.MeshStandardMaterial({ color: 0xc9cdd3, metalness: 0.35, roughness: 0.3 });
+    const alloyDark = new THREE.MeshStandardMaterial({ color: 0x7f848a, metalness: 0.35, roughness: 0.45, side: THREE.DoubleSide });
+    const capMat = new THREE.MeshStandardMaterial({ color: 0x23262b, roughness: 0.5 });
+    const Ro = CAR_D / 2, rr = RIM_D / 2;
+    // полупрофиль боковины: от борта у диска до края протектора (r, половина ширины)
+    const side = [[rr + 0.002, 0.100], [rr + 0.016, 0.109], [rr + 0.045, 0.116], [rr + 0.08, 0.1185],
+      [Ro - 0.035, 0.115], [Ro - 0.018, 0.105], [Ro - 0.007, 0.091], [Ro, 0.077]];
+    const tread = [];
+    for (const c of [-0.05, -0.017, 0.017, 0.05]) {        // 4 продольные канавки
+      tread.push([Ro, c - 0.006], [Ro - 0.009, c - 0.004], [Ro - 0.009, c + 0.004], [Ro, c + 0.006]);
+    }
+    const pts = [...side.map(([r, y]) => [r, -y]), ...tread, ...side.slice().reverse()];
+    g.add(new THREE.Mesh(new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), 96), rubber));
+    // поперечные ламели протектора
+    const sipe = new THREE.BoxGeometry(0.012, 0.016, 0.03);
+    for (let i = 0; i < 72; i++) {
+      const a = i / 72 * Math.PI * 2;
+      for (const y of [-0.066, -0.0335, 0, 0.0335, 0.066]) {
+        const m = new THREE.Mesh(sipe, capMat);
+        m.position.set(Math.cos(a) * (Ro - 0.004), y + (i % 2 ? 0.004 : -0.004), Math.sin(a) * (Ro - 0.004));
+        m.rotation.y = -a;
+        g.add(m);
+      }
+    }
+    // диск: обод, закраины, спицы, ступица, гайки
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(rr - 0.004, rr - 0.004, 0.2, 64, 1, true), alloyDark));
+    for (const y of [-0.1, 0.1]) {
+      const lip = new THREE.Mesh(new THREE.TorusGeometry(rr - 0.004, 0.008, 10, 64), alloy);
+      lip.rotation.x = Math.PI / 2;
+      lip.position.y = y;
+      g.add(lip);
+    }
+    const spoke = new THREE.BoxGeometry(0.17, 0.026, 0.024);
+    for (let i = 0; i < 5; i++) for (const d of [-0.08, 0.08]) {
+      const a = i * 2 * Math.PI / 5 + d;
+      const m = new THREE.Mesh(spoke, alloy);
+      m.position.set(Math.cos(a) * 0.135, 0.078, Math.sin(a) * 0.135);
+      m.rotation.y = -a;
+      g.add(m);
+    }
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.072, 0.05, 32), alloy);
+    hub.position.y = 0.072;
+    g.add(hub);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.012, 24), capMat);
+    cap.position.y = 0.1;
+    g.add(cap);
+    for (let i = 0; i < 5; i++) {
+      const a = i * 2 * Math.PI / 5 + Math.PI / 5;
+      const nut = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.016, 6), alloyDark);
+      nut.position.set(Math.cos(a) * 0.05, 0.1, Math.sin(a) * 0.05);
+      g.add(nut);
+    }
+    linearize(g);
+    return markShared(g);
+  })();
+
+  // ---------- Колесо велосипеда 29": покрышка, обод, втулка, 32 спицы (ось — локальная Z) ----------
+  const BIKE_WHEEL = (function () {
+    const g = new THREE.Group(), R = BIKE_WHEEL_D / 2;
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0x3a3d42, metalness: 0.4, roughness: 0.4 });
+    g.add(new THREE.Mesh(new THREE.TorusGeometry(R - 0.03, 0.03, 14, 96), MAT.tire));
+    g.add(new THREE.Mesh(new THREE.TorusGeometry(R - 0.066, 0.012, 8, 96), rimMat));
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.1, 20), rimMat);
+    hub.rotation.x = Math.PI / 2;
+    g.add(hub);
+    const pts = [];
+    for (let i = 0; i < 32; i++) {
+      const a = i / 32 * Math.PI * 2, a2 = a + (i % 4 < 2 ? 0.28 : -0.28), z = i % 2 ? 0.04 : -0.04;
+      pts.push(new THREE.Vector3(Math.cos(a) * 0.022, Math.sin(a) * 0.022, z),
+        new THREE.Vector3(Math.cos(a2) * (R - 0.072), Math.sin(a2) * (R - 0.072), 0));
+    }
+    g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x9aa0a6 })));
+    linearize(g);
+    return markShared(g);
+  })();
+
+  // колесо авто на ребре, ось вдоль глубины шкафа (плоскость колеса параллельна задней стенке)
+  function carWheel(xc, yc, zc) {
+    const w = CAR_WHEEL.clone();
+    w.rotation.x = Math.PI / 2;
+    w.position.copy(V(xc, yc, zc));
+    root.add(w);
+  }
+  function tube(a, b, r, mat) {
+    const dir = new THREE.Vector3().subVectors(b, a);
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, dir.length(), 14), mat);
+    m.position.copy(a).add(b).multiplyScalar(0.5);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+    root.add(m);
+  }
+  function label(text, pos, cls = '') {
+    const el = document.createElement('div');
+    el.className = 'dim ' + cls;
+    const s = document.createElement('span');
+    s.textContent = text;
+    el.appendChild(s);
+    const o = new THREE.CSS2DObject(el);
+    o.position.copy(pos);
+    scene.add(o);
+    labels.push(o);
+  }
+  function dimLine(a, b, text, tickDir) {
+    const t = tickDir.clone().multiplyScalar(0.05);
+    const pts = [a, b, a.clone().add(t), a.clone().sub(t), b.clone().add(t), b.clone().sub(t)];
+    root.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), dimMat));
+    label(text, a.clone().add(b).multiplyScalar(0.5), 'main');
+  }
+  function setChip(id, level, html, short) {
+    const el = $(id);
+    el.classList.toggle('warn', level === 'warn');
+    el.classList.toggle('bad', level === 'bad');
+    el.querySelector('span').innerHTML = html;
+    // короткая строка в сводке над панелью, полный текст — во всплывающей подсказке
+    const cb = $('cb-' + id);
+    cb.className = 'cb ' + level;
+    cb.lastElementChild.textContent = short;
+    cb.title = el.textContent.trim();
+  }
+
+  // ---------- Сборка модели ----------
+  const $ = id => document.getElementById(id);
+
+  function build() {
+    root.traverse(o => { if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose(); });
+    root.clear();
+    labels.forEach(o => { scene.remove(o); o.element.remove(); });
+    labels = [];
+
+    W = OBJ.cab.w / 1000; H = OBJ.cab.h / 1000; D = OBJ.cab.d / 1000; XI1 = W - T; YB = D;
+    lamp.position.set(0.3, Math.max(3.1, H + 0.4), D / 2 + 1.6);
+    fixture.position.set(0.3, Math.max(3.15, H + 0.45), D / 2 + 1.6);
+    $('dims-line').textContent = `${mm(W)} × ${mm(D)} × ${mm(H)} мм · подъёмный стол + верстак, велосипед 29″, колёса 235/60 R18`;
+    const P = {
+      // размеры велосипеда фиксированы — Aspect AIR ELITE 29, рама L: база 1153, руль 760 мм, верх руля ~1020
+      desk: OBJ.desk.z / 1000, wb: 1.153, bar: 1.02, barW: 0.76,
+      turn: OBJ.bike.turn,
+      man: $('c-man').checked, sitMan: $('c-sitman').checked, roofbox: $('c-roofbox').checked,
+      showBike: $('c-bike').checked, showWheels: $('c-wheels').checked,
+      walls: $('c-walls').checked, dims: $('c-dims').checked,
+    };
+    const BENCH_TOP = OBJ.bench.z / 1000;
+    // средняя стойка стеллажа: по центру шкафа плюс смещение; слева от неё стол, справа верстак
+    // стеллаж — отдельная конструкция внутри шкафа, ширина отсчитывается от центральной оси
+    const RX0 = W / 2 - OBJ.rack.w / 2000, RX1 = W / 2 + OBJ.rack.w / 2000;
+    const POST_X0 = W / 2 + OBJ.rack.off / 1000 - POST / 2, POST_X1 = POST_X0 + POST;
+    P.sit = POST_X0 - RX0;   // ширина левой секции
+    // полки: из редактора объектов, размеры в мм от левой внутренней стенки и от задней стены
+    // глубина общая для всего стеллажа: передние стойки и передний край всех полок на одной линии
+    const RACK_Y0 = Math.max(FRONT_GAP, YB - OBJ.rack.d / 1000), SHELF_T = 0.035;   // высота отгиба полки
+    const BENCH_D = YB - RACK_Y0;   // верстак — полка стеллажа на всю его глубину
+    // ширина полки задаётся секцией стеллажа: вся ширина, левая (до средней стойки) или правая (от неё)
+    const SEC_X = { all: [RX0, RX1], left: [RX0, POST_X0], right: [POST_X1, RX1] };
+    const shelfGeom = sh => ({ x0: SEC_X[sh.sec][0], x1: SEC_X[sh.sec][1], y0: RACK_Y0, z: sh.z / 1000, t: SHELF_T });
+    const SH = OBJ.shelves.map(sh => Object.assign(shelfGeom(sh), { sh }));
+    // самая нижняя полка над зоной [gx0, gx1] выше minZ
+    const shelfOver = (gx0, gx1, minZ) => SH.filter(g => g.x0 < gx1 - 0.1 && g.x1 > gx0 + 0.1 && g.z - g.t > minZ).sort((p, q) => p.z - q.z)[0];
+    // стеллаж: высота стоек — до верха самой высокой полки; передние стойки не заходят в короб роллеты
+    const rackTop = Math.min(H - T, Math.max(RAIL_Z1 + 0.1, BENCH_TOP + 0.1, ...SH.map(g => g.z)));
+    const frontTop = Math.min(rackTop, H - ROLLER_BOX_H - 0.01);
+    const RACK_X = [RX0, POST_X0, RX1 - POST];   // левые грани трёх рядов стоек: левый край стеллажа, середина, правый край
+    const tagSince = (n, id) => { for (let i = n; i < root.children.length; i++) root.children[i].traverse(o => { o.userData.obj = id; }); };
+
+    edgeMat.color.set(css('--edge') || '#3a4550').convertSRGBToLinear();
+    dimMat.color.set(css('--accent') || '#c06c14').convertSRGBToLinear();
+    scene.background = new THREE.Color(css('--scene') || '#e2e6e9');
+
+    // корпус
+    // паркинг: бетонный пол, стена, разметка места, колесоотбойник
+    // пол и разметка — односторонние плоскости: сверху видны, снизу прозрачны, модель можно смотреть из-под пола
+    const floorPlane = (x0, x1, y0, y1, z, mat) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, y1 - y0), mat);
+      m.rotation.x = -Math.PI / 2;
+      m.position.copy(V((x0 + x1) / 2, (y0 + y1) / 2, z));
+      root.add(m);
+    };
+    floorPlane(-3, W + 3, -5.5, D + 0.25, 0, MAT.floor);
+    box(-3, W + 3, D, D + 0.25, 0, Math.max(3.3, H + 0.6), MAT.concrete, false);
+    const PARK_W = 2.6, STRIPE = 0.1, px0 = (W - PARK_W) / 2, px1 = px0 + PARK_W;   // ширина места вместе с полосами
+    floorPlane(px0, px0 + STRIPE, -5.5, D, 0.002, MAT.paint);
+    floorPlane(px1 - STRIPE, px1, -5.5, D, 0.002, MAT.paint);
+    const wallMat = MAT.carcass.clone();
+    wallMat.transparent = !P.walls;
+    wallMat.opacity = P.walls ? 1 : 0.12;
+    wallMat.depthWrite = P.walls;
+    const leftWall = box(0, T, 0, D, 0, H, wallMat);
+    leftWall.visible = currentView !== 'side';   // вид сбоку — как разрез
+    box(W - T, W, 0, D, 0, H, wallMat);
+    const roof = box(T, W - T, 0, YB, H - T, H, wallMat);
+    roof.visible = currentView !== 'top';
+    box(T, W - T, 0, ROLLER_BOX_D, H - ROLLER_BOX_H, H - T, MAT.roller);
+    box(T, T + GUIDE_W, 0, GUIDE_D, 0, H - ROLLER_BOX_H, MAT.roller);
+    box(W - T - GUIDE_W, W - T, 0, GUIDE_D, 0, H - ROLLER_BOX_H, MAT.roller);
+
+    // встроенный стеллаж — отдельная конструкция внутри короба: 3 пары перфорированных стоек
+    // (передняя у роллеты, задняя у стены), сверху боковые связи, задние стойки анкерами к бетонной стене
+    slotTex.repeat.set(1, rackTop / 0.05);
+    for (const cx of RACK_X) {
+      box(cx, cx + POST, YB - POST, YB, 0, rackTop, MAT.upright);
+      box(cx, cx + POST, RACK_Y0, RACK_Y0 + POST, 0, frontTop, MAT.upright);
+      box(cx, cx + POST, RACK_Y0 + POST, YB - POST, frontTop - 0.04, frontTop, MAT.rack);
+      box(cx - 0.01, cx + POST + 0.01, YB - 0.004, YB, rackTop - 0.14, rackTop - 0.06, MAT.steel, false);
+      for (const fy of [RACK_Y0, YB - POST]) box(cx - 0.01, cx + POST + 0.01, fy - 0.01, Math.min(YB, fy + POST + 0.01), 0, 0.004, MAT.rack, false);   // опорные пятки
+    }
+
+    // колёса авто: 2 позиции по ширине x 2 ряда по глубине, у задней стенки
+    // пары шин стоят между стойками стеллажа (левой и средней, средней и велосипедом) вплотную к стене
+    const tireX = [RX0 + POST + 0.005 + CAR_D / 2, POST_X1 + 0.005 + CAR_D / 2];
+    const tireY = [YB - 0.005 - CAR_W / 2, YB - 0.01 - CAR_W * 1.5];
+    const tireFrontY = YB - 0.01 - 2 * CAR_W;
+    const tireRightX = POST_X1 + 0.005 + CAR_D;
+    if (P.showWheels) for (const x of tireX) for (const y of tireY) carWheel(x, y, CAR_D / 2);
+
+    // полка стеллажа: стальной лоток — лист настила с отгибами по периметру и рёбрами жёсткости снизу.
+    // Так же сделаны верхние полки, левый стол и верстак.
+    function rackTray(x0, x1, y0, y1, z) {
+      const under = z - SHELF_T;
+      box(x0, x1, y0, y1, z - 0.003, z, MAT.shelf);
+      box(x0, x1, y0, y0 + 0.003, under, z, MAT.shelf, false);
+      box(x0, x1, y1 - 0.003, y1, under, z, MAT.shelf, false);
+      box(x0, x0 + 0.003, y0, y1, under, z, MAT.shelf, false);
+      box(x1 - 0.003, x1, y0, y1, under, z, MAT.shelf, false);
+      const ribs = Math.max(1, Math.round((x1 - x0) / 0.45));
+      for (let i = 1; i < ribs; i++) {
+        const x = x0 + (x1 - x0) * i / ribs;
+        box(x - 0.012, x + 0.012, y0, y1, z - 0.025, z - 0.003, MAT.shelf, false);
+      }
+    }
+
+    // левый стол на подъёмном механизме: полка стеллажа между левыми и средними стойками, ездит по ним, на полу ничего
+    const nDesk = root.children.length;
+    const SIT_TOP = P.desk, sz = SIT_TOP - SHELF_T, fz = sz;
+    rackTray(RX0 + POST, POST_X0, RACK_Y0, YB, SIT_TOP);
+    tagSince(nDesk, 'desk');   // каретки на стойках — не часть стола
+    // каретки подъёмника на четырёх стойках
+    for (const [cx0, cx1] of [[RX0 + POST, RX0 + POST + 0.03], [POST_X0 - 0.03, POST_X0]]) {
+      box(cx0, cx1, RACK_Y0 + POST, RACK_Y0 + POST + 0.07, fz - 0.06, sz, MAT.rack, false);
+      box(cx0, cx1, YB - POST - 0.07, YB - POST, fz - 0.06, sz, MAT.rack, false);
+    }
+
+    // стоячий верстак
+    const nBench = root.children.length;
+    const by0 = RACK_Y0, bz = BENCH_TOP - SHELF_T, BX1 = RX1 - POST;   // полка стеллажа между средней и правой стойками
+    rackTray(POST_X1, BX1, by0, YB, BENCH_TOP);
+    tagSince(nBench, 'bench');
+
+    // полки стеллажа на всю его глубину
+    for (const g of SH) {
+      const n = root.children.length;
+      rackTray(g.x0, g.x1, g.y0, YB, g.z);
+      tagSince(n, g.sh.id);
+    }
+    // ближайшая полка над верстаком — для предупреждений
+    const benchShelf = shelfOver(POST_X1, XI1, BENCH_TOP + 0.2);
+
+    // LED-ленты под ближайшей полкой над каждым столом
+    const ledOn = $('c-led').checked;
+    for (const [zx0, zx1, light] of [[RX0, POST_X0, ledL], [POST_X1, RX1, ledR]]) {
+      const g = shelfOver(zx0, zx1, BENCH_TOP + 0.2);
+      light.visible = ledOn && !!g;
+      if (!g) continue;
+      const x0 = Math.max(zx0, g.x0) + 0.05, x1 = Math.min(zx1, g.x1) - 0.05, ly = g.y0 + 0.03, lz = g.z - g.t;
+      box(x0, x1, ly - 0.02, ly, lz - 0.008, lz, ledOn ? MAT.ledOn : MAT.ledOff, false);
+      light.position.copy(V((x0 + x1) / 2, ly - 0.05, lz - 0.05));
+    }
+    lamp.castShadow = $('c-shadow').checked;
+    $('ov-shadow').setAttribute('aria-pressed', String($('c-shadow').checked));
+    $('ov-led').setAttribute('aria-pressed', String(ledOn));
+
+    // велосипед: положение (центр колёсной базы), разворот вокруг вертикали и поворот руля — у объекта «Велосипед»
+    const Rb = BIKE_WHEEL_D / 2, t = P.turn * Math.PI / 180, ha = 67.8 * Math.PI / 180, sa = 74.5 * Math.PI / 180;
+    const psi = OBJ.bike.yaw * Math.PI / 180;
+    const F = [-Math.cos(psi), -Math.sin(psi)], Lt = [-Math.sin(psi), Math.cos(psi)];   // в плане: вперёд и вбок
+    const AX = W / 2 + OBJ.bike.ox / 1000 - F[0] * P.wb / 2, AY = OBJ.bike.cy / 1000 - F[1] * P.wb / 2;   // ось заднего колеса
+    // геометрия рамы L: перо 439, понижение каретки ~60, reach 455, stack 628, рулевой угол 67.8°, подседельный 74.5°
+    const RA = [0, Rb], BB = [Math.sqrt(0.439 ** 2 - 0.06 ** 2), Rb - 0.06];
+    const ST = [BB[0] - 0.47 * Math.cos(sa), BB[1] + 0.47 * Math.sin(sa)];     // верх подседельной трубы
+    // седло: штырь выдвинут вдоль подседельной трубы так, чтобы верх седла был на заданной высоте от пола
+    const seatLen = (OBJ.bike.seat / 1000 - 0.05 - BB[1]) / Math.sin(sa);
+    const SAD = [BB[0] - seatLen * Math.cos(sa), BB[1] + seatLen * Math.sin(sa)];
+    const HT = [BB[0] + 0.455, BB[1] + 0.628];                                 // верх рулевой трубы (reach, stack)
+    const HB = [HT[0] + 0.12 * Math.cos(ha), HT[1] - 0.12 * Math.sin(ha)];
+    const FA = [P.wb, Rb], BAR_Z = P.bar - 0.016, barU = HT[0] + 0.05, PU = HB[0];
+    // локальные координаты велосипеда: u — вперёд от оси заднего колеса, v — вверх, dy — вбок
+    const rot = (u, dy) => { const du = u - PU; return [PU + du * Math.cos(t) - dy * Math.sin(t), du * Math.sin(t) + dy * Math.cos(t)]; };
+    const W3 = (u, v, dy) => [AX + F[0] * u + Lt[0] * dy, AY + F[1] * u + Lt[1] * dy, v];
+    const W3f = (u, v, dy) => { const [uu, dd] = rot(u, dy); return W3(uu, v, dd); };   // детали, которые поворачиваются с рулём
+    const Pb = (u, v, dy = 0) => V(...W3(u, v, dy));
+    const Pf = (u, v, dy = 0) => V(...W3f(u, v, dy));
+    const heading = (dx, dy) => Math.atan2(dy, dx);   // поворот колеса так, чтобы его плоскость шла вдоль (dx, dy)
+
+    const nBike = root.children.length;
+    if (P.showBike) {
+      const rear = BIKE_WHEEL.clone();
+      rear.position.copy(Pb(...RA));
+      rear.rotation.y = heading(F[0], F[1]);
+      root.add(rear);
+      const front = BIKE_WHEEL.clone();
+      front.position.copy(Pf(...FA));
+      front.rotation.y = heading(F[0] * Math.cos(t) + Lt[0] * Math.sin(t), F[1] * Math.cos(t) + Lt[1] * Math.sin(t));
+      root.add(front);
+      [[RA, BB], [RA, ST], [BB, ST], [BB, HB], [ST, HT], [HB, HT]].forEach(([a, b]) => tube(Pb(...a), Pb(...b), 0.022, MAT.frame));
+      tube(Pb(...ST), Pb(...SAD), 0.015, MAT.steel);
+      tube(Pb(SAD[0] - 0.12, SAD[1] + 0.025), Pb(SAD[0] + 0.13, SAD[1] + 0.025), 0.03, MAT.saddle);
+      // привод: ось каретки, шатуны 170 мм (на хранении стоят вертикально), платформенные педали, звезда, кассета и цепь
+      const across = new THREE.Vector3(Lt[0], 0, -Lt[1]);
+      const disc = (r, w, mat, at) => {
+        const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, w, 40), mat);
+        m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), across);
+        m.position.copy(at);
+        root.add(m);
+      };
+      // деталь-брусок вдоль велосипеда: sx — вперёд, sy — вверх, sz — вбок
+      const part = (sx, sy, sz, mat, at) => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+        m.position.copy(at);
+        m.rotation.y = heading(F[0], F[1]);
+        root.add(m);
+      };
+      const CR = 0.17, CH = 0.07;   // длина шатуна и его вынос от оси рамы
+      tube(Pb(BB[0], BB[1], -CH), Pb(BB[0], BB[1], CH), 0.012, MAT.steel);
+      disc(0.085, 0.004, MAT.chain, Pb(BB[0], BB[1], 0.05));
+      disc(0.055, 0.035, MAT.chain, Pb(RA[0], RA[1], 0.045));
+      tube(Pb(BB[0], BB[1] + 0.085, 0.05), Pb(RA[0], RA[1] + 0.055, 0.05), 0.004, MAT.chain);
+      tube(Pb(BB[0], BB[1] - 0.085, 0.05), Pb(RA[0], RA[1] - 0.055, 0.05), 0.004, MAT.chain);
+      for (const sd of [-1, 1]) {               // левый шатун вверх, правый вниз
+        const endV = BB[1] - sd * CR;
+        part(0.032, CR + 0.03, 0.016, MAT.crank, Pb(BB[0], (BB[1] + endV) / 2, sd * (CH + 0.008)));
+        tube(Pb(BB[0], endV, sd * CH), Pb(BB[0], endV, sd * 0.18), 0.006, MAT.steel);
+        part(0.1, 0.018, 0.095, MAT.pedal, Pb(BB[0], endV, sd * 0.13));
+        for (const e of [-0.047, 0.047]) part(0.008, 0.026, 0.095, MAT.crank, Pb(BB[0] + e, endV, sd * 0.13));
+      }
+      for (const s of [-1, 1]) tube(Pf(HB[0], HB[1], s * 0.05), Pf(FA[0], FA[1], s * 0.06), 0.018, MAT.steel);
+      tube(Pf(...HT), Pf(barU, BAR_Z), 0.018, MAT.steel);
+      tube(Pf(barU, BAR_Z, -P.barW / 2), Pf(barU, BAR_Z, P.barW / 2), 0.016, MAT.tire);
+    }
+    tagSince(nBike, 'bike');
+
+    // ---------- Проверки: точки велосипеда против всего, что стоит в шкафу ----------
+    const pts = [];   // [x, y, z, деталь]
+    // шаг точек ~15 мм, чтобы не проскочить тонкие столешницы и стойки
+    const seg = (a, b, part, steer = false) => {
+      const n = Math.max(2, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1], (b[2] || 0) - (a[2] || 0)) / 0.015));
+      for (let i = 0; i <= n; i++) {
+        const k = i / n, u = a[0] + (b[0] - a[0]) * k, v = a[1] + (b[1] - a[1]) * k, dy = (a[2] || 0) + ((b[2] || 0) - (a[2] || 0)) * k;
+        pts.push([...(steer ? W3f : W3)(u, v, dy), part]);
+      }
+    };
+    for (const [c, steer, part] of [[RA, false, 'заднее колесо'], [FA, true, 'переднее колесо']]) {
+      for (let i = 0; i < 80; i++) {
+        const a = i / 80 * Math.PI * 2;
+        for (const dy of [-0.028, 0.028]) pts.push([...(steer ? W3f : W3)(c[0] + Math.cos(a) * Rb, c[1] + Math.sin(a) * Rb, dy), part]);
+      }
+    }
+    [[RA, BB], [RA, ST], [BB, ST], [BB, HB], [ST, HT], [HB, HT]].forEach(([a, b]) => seg(a, b, 'рама'));
+    seg(ST, SAD, 'седло');
+    seg([SAD[0] - 0.12, SAD[1] + 0.05], [SAD[0] + 0.13, SAD[1] + 0.05], 'седло');
+    seg(HB, FA, 'вилка', true);
+    seg(HT, [barU, BAR_Z + 0.016], 'руль', true);
+    seg([barU, BAR_Z + 0.016, -P.barW / 2], [barU, BAR_Z + 0.016, P.barW / 2], 'руль', true);
+    // педали: шатуны вертикально (так ставим на хранение); горизонтальное положение проверяем отдельно
+    for (const pp of [[BB[0], BB[1] + 0.17, -0.18], [BB[0], BB[1] - 0.17, 0.18]]) pts.push([...W3(...pp), 'педаль']);
+    const pedH = [[BB[0] + 0.17, BB[1], -0.18], [BB[0] - 0.17, BB[1], 0.18], [BB[0] + 0.17, BB[1], 0.18], [BB[0] - 0.17, BB[1], -0.18]].map(pp => [...W3(...pp), 'педаль']);
+
+    const inBox = (p, x0, x1, y0, y1, z0, z1) => p[0] > x0 && p[0] < x1 && p[1] > y0 && p[1] < y1 && p[2] > z0 && p[2] < z1;
+    const obstacles = [
+      p => (p[0] < XI0 || p[0] > XI1 || p[1] > YB) && 'стенку шкафа',
+      p => p[1] < GUIDE_D && 'роллету',
+      p => RACK_X.some(cx => inBox(p, cx, cx + POST, RACK_Y0, RACK_Y0 + POST, 0, frontTop) || inBox(p, cx, cx + POST, YB - POST, YB, 0, rackTop)) && 'стойку стеллажа',
+      p => inBox(p, RX0 + POST, POST_X0, RACK_Y0, YB, sz, SIT_TOP) && 'левый стол',
+      p => inBox(p, POST_X1, BX1, RACK_Y0, YB, bz, BENCH_TOP) && 'верстак',
+      ...SH.map(g => p => inBox(p, g.x0, g.x1, g.y0, YB, g.z - g.t, g.z) && `полку «${g.sh.name}»`),
+    ];
+    if (P.showWheels) {
+      for (const tx of tireX) for (const ty of tireY) {
+        obstacles.push(p => Math.abs(p[1] - ty) < CAR_W / 2 && (p[0] - tx) ** 2 + (p[2] - CAR_D / 2) ** 2 < (CAR_D / 2) ** 2 && 'шины');
+      }
+    }
+    const hits = list => {
+      const m = new Map();
+      for (const p of list) for (const ob of obstacles) {
+        const n = ob(p);
+        if (n) { if (!m.has(n)) m.set(n, new Set()); m.get(n).add(p[3]); }
+      }
+      return m;
+    };
+    const problems = P.showBike ? [...hits(pts)].map(([ob, parts]) => `${[...parts].join(', ')} упира${parts.size > 1 ? 'ются' : 'ется'} в ${ob}`) : [];
+    const proj = pts.map(p => p[0] * F[0] + p[1] * F[1]);
+    const bikeLen = Math.max(...proj) - Math.min(...proj);
+    // место для ног под левым столом: от левой стенки до ближайшей детали велосипеда в передней зоне
+    const legPts = P.showBike ? pts.filter(p => p[0] < POST_X0 && p[1] < 0.7 && p[2] < SIT_TOP) : [];
+    const legroom = Math.max(0, Math.min(P.sit, ...legPts.map(p => p[0] - XI0)));
+    const underDesk = Math.max(0, POST_X0 - Math.min(...pts.map(p => p[0])));
+    setChip('st-bike', problems.length ? 'bad' : 'ok', problems.length
+      ? `<b>Велосипед не встаёт:</b> ${problems.join('; ')}`
+      : `<b>Велосипед встаёт</b>, длина ${mm(bikeLen)} мм${underDesk > 0.01 ? `, под левый стол заходит на ${mm(underDesk)} мм` : ''}`,
+      problems.length ? 'Велосипед не встаёт' : 'Велосипед');
+
+    const standing = SIT_TOP >= 1.0;
+    const legLevel = standing || legroom >= 0.55 ? 'ok' : legroom >= 0.45 ? 'warn' : 'bad';
+    setChip('st-legs', legLevel, standing
+      ? `<b>Стол поднят на ${mm(SIT_TOP)} мм</b>, работаешь стоя${Math.abs(SIT_TOP - BENCH_TOP) < 0.006 ? ', стол и верстак на одном уровне' : ''}`
+      : legLevel === 'ok'
+      ? `<b>Место для ног ${mm(legroom)} мм</b>, можно сидеть, не выкатывая велосипед`
+      : legLevel === 'warn'
+        ? `<b>Место для ног ${mm(legroom)} мм</b>, сидеть тесновато, когда велосипед внутри`
+        : `<b>Место для ног ${mm(legroom)} мм</b>, сидеть только без велосипеда`,
+      standing ? `Стол стоя ${mm(SIT_TOP)}` : `Ноги ${mm(legroom)}`);
+
+    const pedalsTight = P.showBike && hits(pedH).size > 0;
+    setChip('st-pedals', pedalsTight ? 'warn' : 'ok', pedalsTight
+      ? `<b>Шатуны ставь вертикально</b>: если педаль смотрит вперёд или назад, во что-то упрётся`
+      : `<b>Педали не мешают</b> в любом положении шатунов`,
+      'Педали');
+
+    // ---------- Автобокс лежит на самой верхней полке и едет вместе с ней ----------
+    const topShelf = SH.slice().sort((a, b) => b.z - a.z)[0];
+    const boxWarn = [];
+    let boxLevel = 'ok', boxHtml = '', boxShort = 'Автобокс', boxZ = null;
+    if (!P.roofbox) {
+      boxHtml = '<b>Автобокс скрыт</b>';
+    } else if (!topShelf) {
+      boxLevel = 'bad'; boxHtml = '<b>Автобоксу не на чем лежать:</b> в стеллаже нет полок'; boxShort = 'Автобокс: нет полки';
+    } else {
+      const bx0 = W / 2 + OBJ.roofbox.ox / 1000 - ROOFBOX.L / 2, bx1 = bx0 + ROOFBOX.L;
+      const by1 = YB - OBJ.roofbox.back / 1000, by0 = by1 - ROOFBOX.W;
+      const bzb = topShelf.z, bzt = bzb + ROOFBOX.H;
+      boxZ = [bzb, bzt];
+      const n = root.children.length;
+      const m = new THREE.Mesh(ROOFBOX_GEO, MAT.roofbox);
+      m.position.set(bx0 - W / 2, bzb, D / 2 - by1);
+      root.add(m);
+      tagSince(n, 'roofbox');
+      if (P.dims) label(`автобокс ${mm(bzb)}–${mm(bzt)}`, V((bx0 + bx1) / 2, by0, bzt + 0.04));
+
+      const bad = [], info = [];
+      if (bx0 < topShelf.x0 - 0.01 || bx1 > topShelf.x1 + 0.01) bad.push(`свисает с полки «${topShelf.sh.name}» по ширине: полка ${mm(topShelf.x1 - topShelf.x0)}, бокс ${mm(ROOFBOX.L)}`);
+      if (by0 < topShelf.y0 - 0.005) info.push(`выступает за передний край полки на ${mm(topShelf.y0 - by0)} мм`);
+      if (bzt > H - T) bad.push(`упирается в крышу шкафа на ${mm(bzt - (H - T))} мм`);
+      for (const g of SH) {
+        if (g === topShelf) continue;
+        if (g.x0 < bx1 && g.x1 > bx0 && g.z > bzb + 0.001 && g.z - g.t < bzt) bad.push(`упирается в полку «${g.sh.name}»`);
+      }
+      // вынимаем, выдвигая вперёд: путь проходит под коробом роллеты и между её направляющими
+      const underRoller = H - ROLLER_BOX_H - bzt;
+      if (underRoller < 0) bad.push(`не вынуть и не задвинуть: упирается в короб роллеты, не хватает ${mm(-underRoller)} мм. Опусти полку «${topShelf.sh.name}» до ${mm(H - ROLLER_BOX_H - ROOFBOX.H)} или ниже`);
+      if (bx0 < T + GUIDE_W || bx1 > W - T - GUIDE_W) bad.push('при выдвигании задевает направляющую роллеты');
+      if (bzb > 1.8) info.push('полка выше головы: снимать со стремянки или вдвоём');
+      boxWarn.push(...bad.map(t => t[0].toUpperCase() + t.slice(1) + '.'), ...info.map(t => t[0].toUpperCase() + t.slice(1) + '.'));
+      if (bad.length) {
+        boxLevel = 'bad';
+        boxHtml = `<b>Автобокс:</b> ${bad.join('; ')}`;
+        boxShort = 'Автобокс не проходит';
+      } else {
+        boxLevel = info.length ? 'warn' : 'ok';
+        boxHtml = `<b>Автобокс вынимается и задвигается:</b> до короба роллеты ${mm(underRoller)} мм${info.length ? '; ' + info.join('; ') : ''}`;
+        boxShort = `Автобокс +${mm(underRoller)}`;
+      }
+    }
+    setChip('st-box', boxLevel, boxHtml, boxShort);
+
+    // ---------- Габариты: стеллаж внутри шкафа, шкаф на парковочном месте ----------
+    const fitBad = [], fitInfo = [];
+    const innerW = XI1 - XI0;
+    if (OBJ.rack.w / 1000 > innerW + 0.0005) fitBad.push(`стеллаж шире шкафа изнутри на ${mm(OBJ.rack.w / 1000 - innerW)} мм (внутри ${mm(innerW)})`);
+    else fitInfo.push(`зазор стеллажа до стенок по ${mm((innerW - OBJ.rack.w / 1000) / 2)} мм`);
+    if (OBJ.rack.d / 1000 > YB - FRONT_GAP + 0.0005) fitBad.push(`стеллаж глубже, чем позволяет шкаф: максимум ${mm(YB - FRONT_GAP)} с зазором под роллету`);
+    if (POST_X0 < RX0 + POST + 0.2 || POST_X1 > RX1 - POST - 0.2) fitBad.push('средняя стойка почти упирается в крайнюю: сдвинь её ближе к центру');
+    if (rackTop > H - T - 0.001) fitBad.push('верхняя полка упирается в крышу шкафа');
+    if (W > PARK_W + 0.0005) fitBad.push(`шкаф шире парковочного места (${mm(PARK_W)}) на ${mm(W - PARK_W)} мм`);
+    setChip('st-fit', fitBad.length ? 'bad' : 'ok', fitBad.length
+      ? `<b>Габариты не сходятся:</b> ${fitBad.join('; ')}`
+      : `<b>Стеллаж входит в шкаф</b>, ${fitInfo.join('; ')}; шкаф ${mm(W)} на месте ${mm(PARK_W)}`,
+      fitBad.length ? 'Габариты!' : 'Габариты');
+
+    // ---------- Люди ростом 180 см ----------
+    const L = (px, py) => (a, f, u) => V(px + a, py + f, u);
+    const blob = (p, sx, sy, sz) => { const m = new THREE.Mesh(SPHERE, MAT.man); m.position.copy(p); m.scale.set(sx, sy, sz); root.add(m); };
+    const limb = (a, b, r) => { tube(a, b, r, MAT.man); blob(a, r, r, r); blob(b, r, r, r); };
+    // руки на столешнице высотой hz; плечо 1460, локоть у края стола
+    function arms(P_, shZ, hz) {
+      for (const sd of [-1, 1]) {
+        const sh = P_(sd * 0.2, 0.02, shZ), el = P_(sd * 0.24, 0.12, hz + 0.03), hand = P_(sd * 0.16, 0.42, hz + 0.025);
+        limb(sh, el, 0.045);
+        limb(el, hand, 0.037);
+        blob(hand, 0.045, 0.03, 0.065);
+      }
+    }
+    function torso(P_, base) {   // base — уровень таза
+      blob(P_(0, -0.01, base + 0.05), 0.17, 0.12, 0.12);
+      blob(P_(0, 0.01, base + 0.2), 0.15, 0.14, 0.1);
+      blob(P_(0, 0.02, base + 0.4), 0.19, 0.17, 0.12);
+      tube(P_(0, 0.02, base + 0.55), P_(0, 0.03, base + 0.65), 0.05, MAT.man);
+      blob(P_(0, 0.04, base + 0.745), 0.095, 0.125, 0.105);
+    }
+    function standingMan(px, py, hz) {
+      const P_ = L(px, py);
+      for (const sd of [-1, 1]) {
+        limb(P_(sd * 0.09, 0, 0.93), P_(sd * 0.1, 0.01, 0.5), 0.068);
+        limb(P_(sd * 0.1, 0.01, 0.5), P_(sd * 0.1, 0, 0.085), 0.05);
+        box(px + sd * 0.1 - 0.045, px + sd * 0.1 + 0.045, py - 0.06, py + 0.2, 0, 0.07, MAT.man, false);
+      }
+      torso(P_, 0.93);                       // макушка на 1800
+      arms(P_, 1.46, hz);
+      if (P.dims) label('рост 1800', P_(0, 0, 1.87));
+    }
+    function sittingMan(px, py, s, f, hz) {
+      const P_ = L(px, py);
+      for (const sd of [-1, 1]) {
+        limb(P_(sd * 0.09, 0, s + 0.09), P_(sd * 0.1, 0.48, f + 0.5), 0.068);
+        limb(P_(sd * 0.1, 0.48, f + 0.5), P_(sd * 0.11, 0.5, f + 0.085), 0.05);
+        box(px + sd * 0.11 - 0.045, px + sd * 0.11 + 0.045, py + 0.44, py + 0.7, f, f + 0.07, MAT.man, false);
+      }
+      torso(P_, s + 0.07);
+      arms(P_, s + 0.6, hz);
+      // офисный стул и подставка для ног
+      const cy = py - 0.02;
+      box(px - 0.23, px + 0.23, cy - 0.2, cy + 0.24, s - 0.06, s, MAT.chair, false);
+      box(px - 0.21, px + 0.21, cy - 0.29, cy - 0.25, s + 0.12, s + 0.55, MAT.chair, false);
+      tube(V(px, cy - 0.27, s - 0.04), V(px, cy - 0.27, s + 0.14), 0.015, MAT.steel);
+      tube(V(px, cy, 0.08), V(px, cy, s - 0.06), 0.025, MAT.steel);
+      for (let i = 0; i < 5; i++) {
+        const a = i * Math.PI * 2 / 5 + 0.3, ex = px + Math.cos(a) * 0.3, ey = cy + Math.sin(a) * 0.3;
+        tube(V(px, cy, 0.08), V(ex, ey, 0.06), 0.018, MAT.chair);
+        blob(V(ex, ey, 0.025), 0.025, 0.025, 0.025);
+      }
+      if (f > 0.02) box(px - 0.22, px + 0.22, py + 0.36, py + 0.66, 0, f, MAT.chair);
+      if (P.dims) label(`сиденье ${mm(s)}${f > 0.02 ? `, подставка ${mm(f)}` : ''}`, V(px, cy - 0.3, s + 0.6));
+    }
+    if (P.man) standingMan((POST_X1 + XI1) / 2, -0.12, BENCH_TOP);
+    const seatH = SIT_TOP - 0.25, footH = Math.max(0, seatH - 0.47);
+    if (P.sitMan) {
+      if (SIT_TOP >= 0.95) standingMan((RX0 + POST_X0) / 2, -0.12, SIT_TOP);
+      else sittingMan(XI0 + Math.max(0.23, Math.min(P.showBike ? legroom : P.sit, P.sit) / 2), -0.19, seatH, footH, SIT_TOP);
+    }
+
+    root.traverse(o => {
+      if (!o.isMesh) return;
+      o.castShadow = !o.material.transparent;
+      o.receiveShadow = true;
+      if (currentView === 'top' && (o.material === MAT.shelf || o.material === MAT.shelfSel) && o.userData.obj !== selected) {
+        o.material = MAT.shelfGhost;
+        o.castShadow = false;
+        return;
+      }
+      if (o.userData.obj === selected) {    // подсветка выбранного объекта
+        if (o.material === MAT.wood) o.material = MAT.woodSel;
+        else if (o.material === MAT.shelf) o.material = MAT.shelfSel;
+        else if (o.material === MAT.roofbox) o.material = MAT.roofboxSel;
+        else if (o.material === MAT.frame) o.material = MAT.frameSel;
+      }
+    });
+
+    // ---------- Предупреждения для выбранного объекта ----------
+    const warns = [];
+    const sel = selInfo();
+    if (sel && sel.kind === 'shelf') {
+      const g = SH.find(q => q.sh === sel.data), under = g.z - g.t;
+      const overlapX = (a0, a1) => g.x0 < a1 - 0.02 && g.x1 > a0 + 0.02;
+      if (g.y0 < ROLLER_BOX_D && g.z > H - ROLLER_BOX_H) warns.push('Передний край заходит под короб роллеты: полка в него упрётся.');
+      else if (g.y0 < ROLLER_BOX_D && H - ROLLER_BOX_H - g.z < 0.4) warns.push(`Под коробом роллеты над полкой ${mm(H - ROLLER_BOX_H - g.z)} мм: высокие вещи спереди не пройдут.`);
+      if (H - T - g.z < 0.08) warns.push(`До крыши ${mm(H - T - g.z)} мм.`);
+      for (const q of SH) {
+        if (q === g || q.x0 >= g.x1 - 0.02 || q.x1 <= g.x0 + 0.02) continue;
+        const gap = q.z > g.z ? (q.z - q.t) - g.z : under - q.z;
+        if (gap < 0) warns.push(`Пересекается с полкой «${q.sh.name}».`);
+        else if (gap < 0.12) warns.push(`До полки «${q.sh.name}» всего ${mm(gap)} мм.`);
+      }
+      if (overlapX(POST_X1, XI1) && under < BENCH_TOP + 0.02) warns.push('Ниже верстака: там стоят велосипед и колёса.');
+      else if (overlapX(POST_X1, XI1) && under - BENCH_TOP < 0.35) warns.push(`Над верстаком остаётся ${mm(under - BENCH_TOP)} мм.`);
+      if (overlapX(RX0, POST_X0) && under < BENCH_TOP + 0.3) {
+        warns.push(under > SIT_TOP ? `Мешает подъёму левого стола: над поднятым столом останется ${mm(Math.max(0, under - BENCH_TOP))} мм.` : 'Пересекается с левым столом или шинами под ним.');
+      }
+      if (under > 1.2 && under < 1.85 && g.z - g.y0 > 0 && YB - g.y0 > 0.4) warns.push('Глубокая полка на уровне головы: легко удариться.');
+    } else if (sel && sel.kind === 'rack') {
+      fitBad.forEach(t => warns.push(t[0].toUpperCase() + t.slice(1) + '.'));
+      const pairRight = RX0 + POST + 0.005 + CAR_D;
+      if (P.showWheels && POST_X0 < pairRight) warns.push(`Левая пара шин не помещается между стойками: средней стойке нужно стоять не левее ${mm(pairRight + POST / 2 - W / 2)} от центра.`);
+      problems.forEach(t => warns.push('Велосипед: ' + t + '.'));
+      if (RACK_Y0 + POST > tireFrontY) warns.push('Передние стойки упираются в шины.');
+    } else if (sel && (sel.kind === 'cab')) {
+      fitBad.forEach(t => warns.push(t[0].toUpperCase() + t.slice(1) + '.'));
+    } else if (sel && sel.kind === 'roofbox') {
+      warns.push(...boxWarn);
+    } else if (sel && sel.kind === 'bike') {
+      problems.forEach(t => warns.push(t[0].toUpperCase() + t.slice(1) + '.'));
+    } else if (sel && sel.kind === 'bench') {
+      if (P.bar > bz - 0.01) warns.push(`Руль велосипеда (${mm(P.bar)}) выше низа верстака (${mm(bz)}): велосипед не встанет.`);
+      if (benchShelf && benchShelf.z - benchShelf.t - BENCH_TOP < 0.35) warns.push(`До полки над верстаком ${mm(benchShelf.z - benchShelf.t - BENCH_TOP)} мм.`);
+    } else if (sel && sel.kind === 'desk') {
+      if (OBJ.desk.z > OBJ.bench.z) warns.push('Стол выше верстака: поверхности не совпадут.');
+      const ds = shelfOver(RX0, POST_X0, SIT_TOP);
+      if (ds && ds.z - ds.t - SIT_TOP < 0.3) warns.push(`До полки над столом ${mm(ds.z - ds.t - SIT_TOP)} мм.`);
+    }
+    const wEl = $('obj-warn');
+    if (wEl) {
+      wEl.textContent = '';
+      for (const t of warns) { const d = document.createElement('div'); d.textContent = t; wEl.append(d); }
+    }
+
+    // ---------- Размеры ----------
+    if (P.dims) {
+      dimLine(V(0, -0.18, 0), V(W, -0.18, 0), String(mm(W)), new THREE.Vector3(0, 0, 1));
+      dimLine(V(px0, -1.5, 0.004), V(px1, -1.5, 0.004), `паркинг ${mm(PARK_W)}`, new THREE.Vector3(0, 0, 1));
+      dimLine(V(-0.16, 0, 0), V(-0.16, 0, H), String(mm(H)), new THREE.Vector3(1, 0, 0));
+      dimLine(V(W + 0.16, 0, 0), V(W + 0.16, D, 0), String(mm(D)), new THREE.Vector3(1, 0, 0));
+      const rx = W + 0.03;
+      for (const g of SH) label(`${g.sh.name} ${g.sh.z}`, V((g.x0 + g.x1) / 2, g.y0, g.z + 0.03), g.sh.id === selected ? 'main' : '');
+      label(`верстак стоя ${mm(BENCH_TOP)}`, V(rx, YB - BENCH_D / 2, BENCH_TOP), 'r');
+      label(`короб роллеты ${mm(ROLLER_BOX_H)}`, V(rx, 0.12, H - ROLLER_BOX_H / 2), 'r');
+      label(`левый стол ${mm(SIT_TOP)}`, V(-0.02, FRONT_GAP + 0.1, SIT_TOP), 'l');
+      label(`стол ${mm(P.sit)}`, V(XI0 + P.sit / 2, FRONT_GAP, SIT_TOP + 0.06));
+      label(`для ног ${mm(legroom)}`, V(XI0 + Math.max(legroom, 0.2) / 2, FRONT_GAP, 0.05));
+      label(`верстак ${mm(BX1 - POST_X1)}`, V((POST_X1 + BX1) / 2, by0, BENCH_TOP + 0.06));
+    }
+
+    // ---------- Панель ----------
+    document.querySelectorAll('[data-desk="sit"]').forEach(b => b.setAttribute('aria-pressed', String(SIT_TOP <= SIT_LOW + 0.005)));
+    document.querySelectorAll('[data-desk="stand"]').forEach(b => b.setAttribute('aria-pressed', String(Math.abs(SIT_TOP - BENCH_TOP) < 0.006)));
+    refreshList();
+    syncForm();
+
+    const rows = [
+      ['Левый стол: высота / ширина', `${mm(SIT_TOP)} / ${mm(P.sit)}`],
+      ['Ход подъёма стола', `${mm(SIT_LOW)}–${mm(BENCH_TOP)}`],
+      ['Стул: сиденье / подставка', SIT_TOP < 0.95 ? `${mm(seatH)} / ${mm(footH)}` : 'стоя'],
+      ['Место для ног: ширина × глуб.', `${mm(legroom)} × ${mm(tireFrontY)}`],
+      ['Верстак стоя: верх / ширина', `${mm(BENCH_TOP)} / ${mm(BX1 - POST_X1)}`],
+      ['Верстак стоя: глубина', mm(BENCH_D)],
+      ['Колёса R18: блок Ш×Г×В', `${mm(tireRightX - XI0)}×${mm(YB - tireFrontY)}×${mm(CAR_D)}`],
+      ['Стеллаж: глубина', `${OBJ.rack.d}`],
+      ['Средняя стойка от центра', `${OBJ.rack.off > 0 ? '+' : ''}${OBJ.rack.off}`],
+      ...OBJ.shelves.map(sh => [`${sh.name} (${SEC_NAME[sh.sec]})`, `${sh.z}`]),
+      ['Длина велосипеда', mm(bikeLen)],
+      ['Автобокс 1850×840×420: низ / верх', boxZ ? `${mm(boxZ[0])} / ${mm(boxZ[1])}` : '—'],
+      ['Низ короба роллеты', mm(H - ROLLER_BOX_H)],
+    ];
+    const dl = $('sizes');
+    dl.textContent = '';
+    for (const [k, v] of rows) {
+      const dt = document.createElement('dt'), dd = document.createElement('dd');
+      dt.textContent = k;
+      dd.textContent = v;
+      dl.append(dt, dd);
+    }
+  }
+
+  // ---------- Камера ----------
+  const VIEWS = {
+    iso: new THREE.Vector3(0.55, 0.38, 0.75),
+    front: new THREE.Vector3(0, 0.05, 1),
+    side: new THREE.Vector3(-1, 0.12, 0.08),
+    top: new THREE.Vector3(0, 1, 0.02),
+    isometric: new THREE.Vector3(1, 1, 1),   // равные углы ко всем трём осям, 35,26° к горизонту
+  };
+  let currentView = 'iso', useOrtho = false;
+  // ортографическая камера: без перспективы, размеры не зависят от удаления, как на чертеже
+  const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.05, 100);
+  let activeCam = camera;
+  const EXTENT = { iso: [3.9, 3.5], isometric: [3.9, 3.7], front: [3.5, 3.2], side: [2.4, 3.2], top: [3.5, 2.6] };
+  function fitOrtho() {
+    const [w, h] = EXTENT[currentView] || EXTENT.iso;
+    const k = Math.max(1, W / 2.5, H / 2.7);   // шкаф больше исходного — отодвигаем камеру
+    const halfH = Math.max(h / 2, w / 2 / camera.aspect) * k;
+    ortho.left = -halfH * camera.aspect;
+    ortho.right = halfH * camera.aspect;
+    ortho.top = halfH;
+    ortho.bottom = -halfH;
+    ortho.updateProjectionMatrix();
+  }
+  function placeCamera(dir) {
+    if (!Number.isFinite(dir.x + dir.y + dir.z) || dir.lengthSq() < 1e-6) dir = viewDir(currentView);
+    if (!(camera.aspect > 0 && Number.isFinite(camera.aspect))) camera.aspect = 1;
+    const top = currentView === 'top';
+    controls.target.set(0, top ? 0 : H / 2, 0);   // центр по высоте шкафа
+    if (useOrtho) {
+      activeCam = ortho;
+      ortho.zoom = 1;
+      fitOrtho();
+      ortho.position.copy(controls.target).add(dir.clone().multiplyScalar(10));
+    } else {
+      activeCam = camera;
+      const fov = camera.fov * Math.PI / 180;
+      const fitH = 3.3 / (2 * Math.tan(fov / 2));
+      const fitW = (currentView === 'iso' ? 4.3 : 3.7) / (2 * Math.tan(fov / 2) * camera.aspect);
+      const dist = Math.max(fitH, fitW) * (currentView === 'iso' ? 1.05 : currentView === 'side' ? 1.25 : 1) * Math.max(1, W / 2.5, H / 2.7) + (top ? H : 0);
+      camera.position.copy(controls.target).add(dir.clone().multiplyScalar(dist));
+    }
+    controls.object = activeCam;
+    activeCam.lookAt(controls.target);
+    controls.update();
+    document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === currentView)));
+    document.querySelectorAll('[data-proj]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.proj === 'ortho') === useOrtho)));
+  }
+  // в ортографии фасад, бок и план строго по осям, как на чертеже
+  const PURE = { front: new THREE.Vector3(0, 0, 1), side: new THREE.Vector3(-1, 0, 0), top: new THREE.Vector3(0, 1, 0.0001) };
+  const viewDir = name => (useOrtho && PURE[name] ? PURE[name] : VIEWS[name]).clone().normalize();
+  function setView(name) {
+    const changed = (name === 'top') !== (currentView === 'top') || (name === 'side') !== (currentView === 'side');
+    currentView = name;
+    if (changed) build();
+    if (name === 'isometric') useOrtho = true;   // изометрия по определению без перспективы
+    placeCamera(viewDir(name));
+  }
+  // смена проекции сохраняет текущий угол обзора
+  function setProjection(o) {
+    const dir = activeCam.position.clone().sub(controls.target).normalize();
+    useOrtho = o;
+    // если камеру не крутили после выбора фасада/бока/плана — встаём ровно по оси нового режима
+    const untouched = PURE[currentView] && Math.min(dir.angleTo(PURE[currentView]), dir.angleTo(VIEWS[currentView].clone().normalize())) < 0.1;
+    placeCamera(untouched ? viewDir(currentView) : dir);
+  }
+
+  function resize() {
+    const w = viewer.clientWidth, h = viewer.clientHeight;
+    if (!w || !h) return;   // окно артефакта ещё скрыто или схлопнуто — ждём настоящий размер
+    renderer.setSize(w, h);
+    labelRenderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    fitOrtho();
+    // если камера успела встать по нулевому размеру окна, ставим её заново
+    const pos = activeCam.position;
+    if (!Number.isFinite(pos.x + pos.y + pos.z) || !Number.isFinite(ortho.left)) placeCamera(viewDir(currentView));
+  }
+
+  // ---------- События ----------
+  document.querySelectorAll('#card-show input').forEach(el => el.addEventListener('input', () => { build(); saveState(); }));
+  document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+  document.querySelectorAll('[data-proj]').forEach(b => b.addEventListener('click', () => setProjection(b.dataset.proj === 'ortho')));
+  // сворачиваемые блоки панели: состояние запоминается в этом браузере;
+  // по умолчанию открыты «Объекты» и «Показать», на телефоне — только «Объекты»
+  document.querySelectorAll('details.card').forEach(d => {
+    const key = 'parking-cabinet:ui2:' + d.id;
+    let saved = null;
+    try { saved = localStorage.getItem(key); } catch (e) { /* хранилище недоступно */ }
+    if (saved !== null) d.open = saved === '1';
+    else if (matchMedia('(max-width: 860px)').matches) d.open = d.id === 'card-objects';
+    d.addEventListener('toggle', () => { try { localStorage.setItem(key, d.open ? '1' : '0'); } catch (e) { /* без сохранения */ } });
+  });
+
+  // сводка проверки открывает подробности
+  const reduceMotionUi = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  $('checkbar').addEventListener('click', () => {
+    const c = $('card-check');
+    c.open = true;
+    c.scrollIntoView({ block: 'nearest', behavior: reduceMotionUi ? 'auto' : 'smooth' });
+  });
+
+  // быстрые переключатели на самой модели дублируют галочки в панели
+  for (const [btn, box] of [['ov-shadow', 'c-shadow'], ['ov-led', 'c-led']]) {
+    $(btn).addEventListener('click', () => { $(box).checked = !$(box).checked; build(); saveState(); });
+  }
+
+  // кнопки «Сидя / Стоя»: плавно двигаем стол
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function moveDesk(toMm) {
+    const from = OBJ.desk.z;
+    toMm = clamp(Math.round(toMm), 810, 1200);
+    if (reduceMotion) { OBJ.desk.z = toMm; build(); saveState(); return; }
+    const t0 = performance.now(), dur = 800;
+    (function step(now) {
+      const k = Math.min(1, (now - t0) / dur), e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+      OBJ.desk.z = Math.round(from + (toMm - from) * e);
+      build();
+      if (k < 1) requestAnimationFrame(step);
+      else saveState();
+    })(t0);
+  }
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-desk]');
+    if (b) moveDesk(b.dataset.desk === 'sit' ? SIT_LOW * 1000 : OBJ.bench.z);
+  });
+
+  // ---------- Объекты сцены: размеры редактируются и сохраняются в браузере ----------
+  const STORE = 'parking-cabinet:v2';
+  const INNER = 2464;   // внутренняя ширина исходного шкафа 2500 — для переноса старых сохранений
+  const DEFAULTS = () => ({
+    cab: { w: 2500, d: 1000, h: 2700 },
+    bike: { model: 'aspect-air-elite-29-L', ox: 273, cy: 480, yaw: 0, turn: 0, seat: 1070 },
+    desk: { z: 810 },
+    bench: { z: 1130 },
+    rack: { w: 2464, d: 900, off: 0 },
+    roofbox: { ox: 0, back: 20 },
+    shelves: [
+      { id: 'top', name: 'Верхняя полка', sec: 'all', z: 2000 },
+      { id: 'left', name: 'Полка над левым столом', sec: 'left', z: 1700 },
+      { id: 'right', name: 'Полка над верстаком', sec: 'right', z: 1700 },
+    ],
+  });
+  // поле: ключ, подпись, минимум, максимум, шаг (всё в мм)
+  const SCHEMA = {
+    // у велосипеда меняются только положение, разворот, поворот руля и высота седла; размеры — по модели
+    cab: { title: 'Шкаф', fields: [['w', 'Ширина', 1500, 3500, 10], ['d', 'Глубина', 600, 1500, 10], ['h', 'Высота', 1800, 3200, 10]] },
+    bike: { title: 'Велосипед', fields: [['ox', 'Центр от оси места', -1500, 1500, 10], ['cy', 'Центр по глубине от фасада', 100, 1000, 10], ['yaw', 'Разворот, °', -180, 180, 5], ['turn', 'Поворот руля, °', -70, 70, 5], ['seat', 'Высота седла от пола', 850, 1150, 10]] },
+    desk: { title: 'Левый стол', fields: [['z', 'Высота', 810, 1200, 10]] },
+    bench: { title: 'Верстак', fields: [['z', 'Высота', 900, 1300, 10]] },
+    roofbox: { title: 'Автобокс', fields: [['ox', 'Центр от оси места', -1000, 1000, 10], ['back', 'Отступ от стены', 0, 400, 10]] },
+    rack: { title: 'Стеллаж', fields: [['w', 'Ширина', 1200, 3400, 10], ['d', 'Глубина', 400, 1400, 10], ['off', 'Средняя стойка от центра', -800, 800, 10]] },   // 900 = вся глубина короба за вычетом зазора под роллету
+    shelf: { title: 'Полка', fields: [['z', 'Высота верха', 200, 2680, 10]] },   // ширина и глубина — от секции и стеллажа
+  };
+  let OBJ = DEFAULTS();
+  let selected = 'top';
+  function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+  function selInfo() {
+    if (selected in OBJ && selected !== 'shelves') return { kind: selected, data: OBJ[selected], schema: SCHEMA[selected] };
+    const sh = OBJ.shelves.find(q => q.id === selected);
+    return sh ? { kind: 'shelf', data: sh, schema: SCHEMA.shelf } : null;
+  }
+  function fixFields(obj, schema) {
+    for (const [k, , lo, hi] of schema.fields) obj[k] = clamp(Math.round(Number.isFinite(+obj[k]) ? +obj[k] : lo), lo, hi);
+    return obj;
+  }
+  const SEC_NAME = { all: 'вся ширина', left: 'левая секция', right: 'правая секция' };
+  function fixShelf(sh) {
+    fixFields(sh, SCHEMA.shelf);
+    if (!(sh.sec in SEC_NAME)) {   // старые сохранения с отступом и шириной — определяем секцию по ним
+      const x0 = +sh.x0 || 0, w = +sh.w || INNER;
+      sh.sec = w > INNER * 0.8 ? 'all' : x0 < 100 ? 'left' : 'right';
+    }
+    for (const k of ['x0', 'w', 'd', 't']) delete sh[k];   // ширина, глубина и толщина теперь общие
+    sh.name = String(sh.name || 'Полка').slice(0, 40);
+    return sh;
+  }
+  function applyState(st) {
+    if (!st || typeof st !== 'object' || !st.objects || typeof st.objects !== 'object') return false;
+    const o = st.objects, d = DEFAULTS();
+    // старые сохранения: положение велосипеда и автобокса было от левой стенки, теперь — от оси места
+    for (const k of ['bike', 'roofbox']) if (o[k] && 'cx' in o[k] && !('ox' in o[k])) o[k].ox = +o[k].cx - INNER / 2;
+    for (const k of ['cab', 'bike', 'desk', 'bench', 'rack', 'roofbox']) {
+      // старые сохранения велосипеда (до Aspect AIR ELITE 29 L) не переносим — берём размеры этой модели
+      const fresh = k === 'bike' && !(o.bike && o.bike.model === d.bike.model);
+      if (!fresh && o[k] && typeof o[k] === 'object') for (const [f] of SCHEMA[k].fields) if (f in o[k]) d[k][f] = o[k][f];
+      fixFields(d[k], SCHEMA[k]);
+    }
+    if (Array.isArray(o.shelves)) {
+      const seen = new Set();
+      d.shelves = o.shelves.filter(q => q && typeof q === 'object').slice(0, 40).map(q => {
+        let id = typeof q.id === 'string' && /^[\w-]{1,30}$/.test(q.id) ? q.id : '';
+        while (!id || seen.has(id) || id in d) id = 's' + Math.random().toString(36).slice(2, 8);
+        seen.add(id);
+        return fixShelf({ id, name: q.name, sec: q.sec, x0: q.x0, w: q.w, z: q.z });
+      });
+    }
+    OBJ = d;
+    // если сохранённая ширина стола вышла за новые пределы, полки у стойки сдвигаются вместе с ней
+    if (st.show && typeof st.show === 'object') {
+      for (const el of document.querySelectorAll('#card-show input')) if (el.id in st.show) el.checked = !!st.show[el.id];
+    }
+    if (!selInfo()) selected = OBJ.shelves[0] ? OBJ.shelves[0].id : 'bench';
+    return true;
+  }
+  const exportState = () => ({
+    app: 'parking-cabinet', version: 2, objects: OBJ,
+    show: Object.fromEntries([...document.querySelectorAll('#card-show input')].map(el => [el.id, el.checked])),
+  });
+  function saveState() {
+    try { localStorage.setItem(STORE, JSON.stringify(exportState())); } catch (e) { /* хранилище недоступно */ }
+    if ($('io').open && document.activeElement !== $('io-text')) $('io-text').value = JSON.stringify(exportState(), null, 1);
+  }
+  function loadState() {
+    try { return JSON.parse(localStorage.getItem(STORE) || 'null'); } catch (e) { return null; }
+  }
+
+  // список объектов
+  function listItems() {
+    return [
+      ['cab', 'Шкаф', `${OBJ.cab.w}×${OBJ.cab.d}×${OBJ.cab.h}`],
+      ['bike', 'Велосипед', `${OBJ.bike.ox} · ${OBJ.bike.cy} · ${OBJ.bike.yaw}°`],
+      ['desk', 'Левый стол', `${OBJ.desk.z}`],
+      ['bench', 'Верстак', `${OBJ.bench.z}`],
+      ['rack', 'Стеллаж', `${OBJ.rack.w}×${OBJ.rack.d}`],
+      ['roofbox', 'Автобокс', `${OBJ.roofbox.ox} · от стены ${OBJ.roofbox.back}`],
+      ...OBJ.shelves.map(q => [q.id, q.name, `${q.z} · ${SEC_NAME[q.sec]}`]),
+    ];
+  }
+  // список: две группы — «Мебель» (первые три объекта) и «Полки» с кнопкой добавления в заголовке
+  function renderList() {
+    const box = $('obj-list');
+    box.textContent = '';
+    const group = (title, withAdd) => {
+      const g = document.createElement('div');
+      g.className = 'obj-group';
+      const t = document.createElement('span');
+      t.textContent = title;
+      g.append(t);
+      if (withAdd) {
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'link';
+        add.id = 'sh-add';
+        add.textContent = '+ Добавить';
+        add.title = 'Добавить полку на 30 см ниже выбранной';
+        g.append(add);
+      }
+      box.append(g);
+    };
+    listItems().forEach(([id, name, info], i) => {
+      if (i === 0) group('Мебель', false);
+      if (i === listItems().length - OBJ.shelves.length) group(`Полки · ${OBJ.shelves.length}`, true);
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'obj-row';
+      b.dataset.obj = id;
+      b.setAttribute('aria-pressed', String(id === selected));
+      const n = document.createElement('b'), s = document.createElement('span');
+      n.textContent = name;
+      s.textContent = info;
+      b.append(n, s);
+      b.addEventListener('click', () => select(id));
+      box.append(b);
+    });
+    if (!OBJ.shelves.length) group('Полки · 0', true);
+  }
+  function refreshList() {
+    const items = listItems(), rows = $('obj-list').querySelectorAll('[data-obj]');
+    if (rows.length !== items.length) { renderList(); return; }
+    for (let i = 0; i < items.length; i++) {
+      const [id, name, info] = items[i], b = rows[i];
+      if (b.dataset.obj !== id) { renderList(); return; }
+      b.firstElementChild.textContent = name;
+      b.lastElementChild.textContent = info;
+      b.setAttribute('aria-pressed', String(id === selected));
+    }
+    // выбранная строка должна быть видна внутри списка — прокручиваем только сам список, не страницу
+    const list = $('obj-list'), sel = list.querySelector('[aria-pressed="true"]');
+    if (sel && list.scrollHeight > list.clientHeight + 1) {
+      const lr = list.getBoundingClientRect(), sr = sel.getBoundingClientRect();
+      if (sr.top < lr.top) list.scrollTop -= lr.top - sr.top;
+      else if (sr.bottom > lr.bottom) list.scrollTop += sr.bottom - lr.bottom;
+    }
+  }
+
+  // форма выбранного объекта: заголовок (тип, название, «мм», удалить) и поля в одну строку
+  const SHORT = { 'Колёсная база': 'База', 'Верх руля от пола': 'Верх руля', 'Ширина руля': 'Ширина руля', 'Высота верха': 'Высота',
+    'Глубина от стены': 'Глубина', 'Отступ от левой стенки': 'Отступ слева', 'Средняя стойка от центра': 'Стойка от центра',
+    'Центр по ширине от левой стенки': 'По ширине', 'Центр по глубине от фасада': 'По глубине', 'Высота седла от пола': 'Высота седла', 'Центр от оси места': 'От оси места' };
+  function renderForm() {
+    const f = $('obj-form');
+    f.textContent = '';
+    const s = selInfo();
+    if (!s) return;
+    const head = document.createElement('div');
+    head.className = 'of-head';
+    const kind = document.createElement('span');
+    kind.className = 'of-kind';
+    kind.textContent = s.schema.title;
+    head.append(kind);
+    if (s.kind === 'shelf') {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.id = 'of-name';
+      inp.maxLength = 40;
+      inp.value = s.data.name;
+      inp.setAttribute('aria-label', 'Название полки');
+      inp.addEventListener('input', () => { s.data.name = inp.value.slice(0, 40) || 'Полка'; saveState(); build(); });
+      head.append(inp);
+    } else {
+      kind.classList.add('of-grow');
+    }
+    const unit = document.createElement('span');
+    unit.className = 'of-unit';
+    unit.textContent = 'мм';
+    head.append(unit);
+    if (s.kind === 'shelf') {
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'link danger';
+      del.textContent = 'Удалить';
+      let armed = null;
+      del.addEventListener('click', () => {
+        if (!armed) {
+          del.textContent = 'Точно?';
+          armed = setTimeout(() => { armed = null; del.textContent = 'Удалить'; }, 3000);
+          return;
+        }
+        clearTimeout(armed);
+        OBJ.shelves = OBJ.shelves.filter(q => q !== s.data);
+        saveState();
+        select(OBJ.shelves[0] ? OBJ.shelves[0].id : 'bench');
+      });
+      head.append(del);
+    }
+    f.append(head);
+    for (const [k, label, lo, hi, step] of s.schema.fields) {
+      const row = document.createElement('div');
+      row.className = 'field';
+      const short = SHORT[label] || label;
+      row.innerHTML = `<label for="of-${k}" title="${label}, мм">${short}</label>` +
+        `<input type="range" id="of-${k}" data-k="${k}" min="${lo}" max="${hi}" step="${step}">` +
+        `<input type="number" id="of-${k}-n" data-k="${k}" min="${lo}" max="${hi}" step="${step}" inputmode="numeric" aria-label="${label}, мм">`;
+      for (const inp of row.querySelectorAll('input')) {
+        inp.value = s.data[k];
+        inp.addEventListener('input', () => {
+          const v = +inp.value;
+          if (inp.value === '' || !Number.isFinite(v)) return;
+          s.data[k] = clamp(Math.round(v), lo, hi);
+          if (s.kind === 'shelf') fixShelf(s.data);
+          saveState();
+          build();
+        });
+        inp.addEventListener('change', () => { inp.value = s.data[k]; });
+      }
+      f.append(row);
+    }
+    if (s.kind === 'desk') {
+      const row = document.createElement('div');
+      row.className = 'field';
+      row.innerHTML = '<label>Положение</label><div class="seg" role="group" aria-label="Положение левого стола">' +
+        '<button type="button" data-desk="sit" aria-pressed="false">Сидя</button><button type="button" data-desk="stand" aria-pressed="false">Стоя</button></div>';
+      f.append(row);
+    }
+    const warn = document.createElement('div');
+    warn.className = 'obj-warn';
+    warn.id = 'obj-warn';
+    f.append(warn);
+  }
+  function syncForm() {
+    const s = selInfo();
+    if (!s) return;
+    for (const inp of document.querySelectorAll('#obj-form [data-k]')) {
+      if (document.activeElement !== inp) inp.value = s.data[inp.dataset.k];
+    }
+  }
+  function select(id) {
+    selected = id;
+    renderList();
+    renderForm();
+    build();
+    if (!$('card-objects').open) $('card-objects').open = true;
+  }
+
+  // кнопка «+ Добавить» живёт в заголовке группы «Полки», список перерисовывается — слушаем делегированно
+  document.addEventListener('click', e => { if (e.target.closest('#sh-add')) addShelf(); });
+  function addShelf() {
+    const base = OBJ.shelves.find(q => q.id === selected) || OBJ.shelves[0];
+    const sh = fixShelf({
+      id: 's' + Date.now().toString(36), name: `Полка ${OBJ.shelves.length + 1}`,
+      sec: base ? base.sec : 'all',
+      z: base ? Math.max(400, base.z - 300) : 1500,
+    });
+    OBJ.shelves.push(sh);
+    saveState();
+    select(sh.id);
+  }
+
+  // выбор объекта кликом по модели (клик без перетаскивания)
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  let downAt = null;
+  renderer.domElement.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
+  renderer.domElement.addEventListener('pointerup', e => {
+    if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) return;
+    downAt = null;
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.set((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, activeCam);
+    const hit = ray.intersectObjects(root.children, true).find(h => h.object.isMesh && h.object.visible && !h.object.material.transparent);
+    if (hit && hit.object.userData.obj) select(hit.object.userData.obj);
+  });
+
+  // файл: копирование, вставка, открытие
+  const ioMsg = t => { $('io-msg').textContent = t; };
+  $('io').addEventListener('toggle', () => { if ($('io').open) $('io-text').value = JSON.stringify(exportState(), null, 1); });
+  $('io-copy').addEventListener('click', () => {
+    const txt = JSON.stringify(exportState(), null, 1);
+    $('io-text').value = txt;
+    const manual = () => { $('io-text').focus(); $('io-text').select(); ioMsg('Текст выделен в поле. Скопируй его вручную и сохрани в файл shkaf.json.'); };
+    try {
+      navigator.clipboard.writeText(txt).then(() => ioMsg('Скопировано. Вставь в текстовый редактор и сохрани как shkaf.json.'), manual);
+    } catch (e) { manual(); }
+  });
+  $('io-save').addEventListener('click', () => {
+    const txt = JSON.stringify(exportState(), null, 1);
+    $('io-text').value = txt;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([txt], { type: 'application/json' }));
+    a.download = 'shkaf.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    ioMsg('Файл shkaf.json сохранён в загрузки. Открыть его можно кнопкой «Открыть файл».');
+  });
+  function importText(txt) {
+    let st;
+    try { st = JSON.parse(txt); } catch (e) { ioMsg('Не получилось прочитать: это не JSON. Проверь, что скопирован весь текст.'); return; }
+    if (!applyState(st)) { ioMsg('В этом тексте нет данных шкафа.'); return; }
+    saveState();
+    renderList();
+    renderForm();
+    build();
+    ioMsg('Загружено.');
+  }
+  $('io-apply').addEventListener('click', () => importText($('io-text').value));
+  $('io-file').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const rd = new FileReader();
+    rd.onload = () => importText(String(rd.result));
+    rd.onerror = () => ioMsg('Не удалось открыть файл.');
+    rd.readAsText(file);
+    e.target.value = '';
+  });
+  let resetArmed = null;
+  $('io-reset').addEventListener('click', () => {
+    const btn = $('io-reset');
+    if (!resetArmed) {
+      btn.textContent = 'Нажми ещё раз: все полки и размеры вернутся к исходным';
+      resetArmed = setTimeout(() => { resetArmed = null; btn.textContent = 'Сбросить всё к исходному'; }, 4000);
+      return;
+    }
+    clearTimeout(resetArmed);
+    resetArmed = null;
+    btn.textContent = 'Сбросить всё к исходному';
+    OBJ = DEFAULTS();
+    for (const el of document.querySelectorAll('#card-show input')) el.checked = el.defaultChecked;
+    selected = 'top';
+    saveState();
+    renderList();
+    renderForm();
+    build();
+    ioMsg('Сброшено к исходному.');
+  });
+
+  // ---------- Во весь экран ----------
+  const fsBtn = $('fs-btn');
+  let pseudoFs = false;
+  const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+  const isFs = () => !!fsElement() || pseudoFs;
+  // после смены размера или поворота экрана заново вписываем модель, сохраняя угол обзора
+  function refit() {
+    resize();
+    placeCamera(activeCam.position.clone().sub(controls.target).normalize());
+  }
+  function updateFsUi() {
+    const on = isFs();
+    viewer.classList.toggle('fs', pseudoFs);
+    viewer.classList.toggle('is-fs', on);
+    document.documentElement.classList.toggle('fs-lock', pseudoFs);
+    fsBtn.setAttribute('aria-pressed', String(on));
+    fsBtn.setAttribute('aria-label', on ? 'Выйти из полноэкранного режима' : 'Во весь экран');
+    fsBtn.querySelector('span').textContent = on ? 'Свернуть' : 'Во весь экран';
+    $('fs-icon').setAttribute('d', on ? 'M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4' : 'M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4');
+    requestAnimationFrame(refit);
+  }
+  async function enterFs() {
+    const req = viewer.requestFullscreen || viewer.webkitRequestFullscreen;
+    const enabled = document.fullscreenEnabled ?? document.webkitFullscreenEnabled ?? true;
+    if (req && enabled) {
+      try { await req.call(viewer); } catch (e) { /* запрещено во встроенном окне — ниже запасной режим */ }
+      await new Promise(r => setTimeout(r, 150));
+      if (fsElement()) return;
+    }
+    pseudoFs = true;
+    updateFsUi();
+  }
+  function exitFs() {
+    if (fsElement()) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      try { const r = exit.call(document); if (r && r.catch) r.catch(() => {}); } catch (e) { /* уже вышли */ }
+      return;
+    }
+    pseudoFs = false;
+    updateFsUi();
+  }
+  fsBtn.addEventListener('click', () => (isFs() ? exitFs() : enterFs()));
+  document.addEventListener('fullscreenchange', updateFsUi);
+  document.addEventListener('webkitfullscreenchange', updateFsUi);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && pseudoFs) exitFs(); });
+  window.addEventListener('orientationchange', () => setTimeout(refit, 300));
+  if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener('change', () => setTimeout(refit, 300));
+  new ResizeObserver(resize).observe(viewer);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', build);
+  new MutationObserver(build).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  applyState(loadState());
+  renderList();
+  renderForm();
+  resize();
+  build();
+  setView('iso');
+  (function loop() {
+    requestAnimationFrame(loop);
+    controls.update();
+    renderer.render(scene, activeCam);
+    labelRenderer.render(scene, activeCam);
+  })();
+})();
+</script>
+</body>
+</html>
